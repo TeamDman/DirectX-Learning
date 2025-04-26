@@ -714,6 +714,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sample_direct3d12_improved_transparent"
+version = "0.0.0"
+dependencies = [
+ "windows",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
