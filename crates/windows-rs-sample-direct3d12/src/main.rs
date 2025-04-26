@@ -1,9 +1,13 @@
-use windows::{
-    core::*, Win32::Foundation::*, Win32::Graphics::Direct3D::Fxc::*, Win32::Graphics::Direct3D::*,
-    Win32::Graphics::Direct3D12::*, Win32::Graphics::Dxgi::Common::*, Win32::Graphics::Dxgi::*,
-    Win32::System::LibraryLoader::*, Win32::System::Threading::*,
-    Win32::UI::WindowsAndMessaging::*,
-};
+use windows::core::*;
+use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Direct3D::Fxc::*;
+use windows::Win32::Graphics::Direct3D::*;
+use windows::Win32::Graphics::Direct3D12::*;
+use windows::Win32::Graphics::Dxgi::Common::*;
+use windows::Win32::Graphics::Dxgi::*;
+use windows::Win32::System::LibraryLoader::*;
+use windows::Win32::System::Threading::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
 
 trait DXSample {
     fn new(command_line: &SampleCommandLine) -> Result<Self>

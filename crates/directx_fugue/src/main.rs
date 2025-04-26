@@ -53,14 +53,18 @@ fn main() -> eyre::Result<()> {
 
     // (after CreateWindowExW)
     unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetWindowLongW, SetWindowLongW, SetLayeredWindowAttributes,
-            GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT, LWA_ALPHA, LWA_COLORKEY,
-        };
+        use windows::Win32::UI::WindowsAndMessaging::GWL_EXSTYLE;
+        use windows::Win32::UI::WindowsAndMessaging::GetWindowLongW;
+        use windows::Win32::UI::WindowsAndMessaging::LWA_ALPHA;
+        use windows::Win32::UI::WindowsAndMessaging::LWA_COLORKEY;
+        use windows::Win32::UI::WindowsAndMessaging::SetLayeredWindowAttributes;
+        use windows::Win32::UI::WindowsAndMessaging::SetWindowLongW;
+        use windows::Win32::UI::WindowsAndMessaging::WS_EX_LAYERED;
+        use windows::Win32::UI::WindowsAndMessaging::WS_EX_TRANSPARENT;
 
         // turn on WS_EX_LAYERED + WS_EX_TRANSPARENT for click‐through
         let ex = GetWindowLongW(hwnd, GWL_EXSTYLE);
-        let new_ex = (ex as u32 | WS_EX_LAYERED.0 as u32| WS_EX_TRANSPARENT.0 as u32) as i32;
+        let new_ex = (ex as u32 | WS_EX_LAYERED.0 as u32 | WS_EX_TRANSPARENT.0 as u32) as i32;
         SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex);
 
         // make black pixels fully‐transparent, but let your pixel shader α pass through
@@ -160,7 +164,7 @@ fn main() -> eyre::Result<()> {
         pSysMem: vertices.as_ptr() as *const _,
         ..Default::default()
     };
-    
+
     let mut vertex_buffer = None;
     unsafe {
         device.CreateBuffer(
@@ -181,7 +185,7 @@ fn main() -> eyre::Result<()> {
         InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
         InstanceDataStepRate: 0,
     }];
-    
+
     let mut input_layout = None;
     unsafe {
         device.CreateInputLayout(
@@ -202,7 +206,7 @@ fn main() -> eyre::Result<()> {
     blend_desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
     blend_desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
     blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL.0 as u8;
-    
+
     let blend_state = blend_state.unwrap(); // Unwrap the Option
 
     // --- Main Loop ---

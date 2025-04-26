@@ -83,6 +83,5 @@ pub fn init_dx11(
     }
     let rtv = rtv.unwrap();
 
-
     Ok((dev, ctx, sc, rtv))
 }
