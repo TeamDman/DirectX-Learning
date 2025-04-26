@@ -1,0 +1,1 @@
+G:\Programming\Repos\DirectX-Learning\target\debug\sample_direct3d12.exe: G:\Programming\Repos\DirectX-Learning\crates\windows-rs-sample-direct3d12\build.rs G:\Programming\Repos\DirectX-Learning\crates\windows-rs-sample-direct3d12\src\main.rs
