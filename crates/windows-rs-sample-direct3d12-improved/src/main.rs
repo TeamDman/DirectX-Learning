@@ -1,5 +1,3 @@
-#![windows_subsystem = "windows"] // Optional: Prevents console window from appearing
-
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Direct3D::Fxc::*;

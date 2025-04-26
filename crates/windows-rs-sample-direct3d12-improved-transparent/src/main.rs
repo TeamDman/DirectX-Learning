@@ -1,5 +1,4 @@
 #![feature(maybe_uninit_array_assume_init)]
-#![windows_subsystem = "windows"] // Optional: Prevents console window from appearing
 
 use windows::core::*;
 use windows::Win32::Foundation::*;
@@ -793,11 +792,18 @@ mod d3d12_hello_triangle_buffered {
 
         let signature_blob = signature_blob.unwrap(); // Safe after check
 
+        // Fix: Create a slice from the blob pointer and size
+        let signature_data: &[u8] = unsafe {
+            std::slice::from_raw_parts(
+                signature_blob.GetBufferPointer() as *const u8,
+                signature_blob.GetBufferSize(),
+            )
+        };
+
         unsafe {
             device.CreateRootSignature(
                 0, // nodeMask
-                signature_blob.GetBufferPointer(),
-                signature_blob.GetBufferSize(),
+                signature_data,
             )
         }
     }
@@ -869,8 +875,14 @@ mod d3d12_hello_triangle_buffered {
         // Describe PSO
         let pso_desc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
             pRootSignature: unsafe { std::mem::transmute_copy(root_signature) },
-            VS: D3D12_SHADER_BYTECODE::from(&vertex_shader), // Use helper From impl
-            PS: D3D12_SHADER_BYTECODE::from(&pixel_shader),  // Use helper From impl
+            VS: D3D12_SHADER_BYTECODE {
+                pShaderBytecode: unsafe { vertex_shader.GetBufferPointer() },
+                BytecodeLength: unsafe { vertex_shader.GetBufferSize() },
+            },
+            PS: D3D12_SHADER_BYTECODE {
+                pShaderBytecode: unsafe { pixel_shader.GetBufferPointer() },
+                BytecodeLength: unsafe { pixel_shader.GetBufferSize() },
+            },
             InputLayout: D3D12_INPUT_LAYOUT_DESC {
                 pInputElementDescs: input_element_descs.as_ptr(),
                 NumElements: input_element_descs.len() as u32,
@@ -1011,7 +1023,23 @@ mod d3d12_hello_triangle_buffered {
             Type: D3D12_HEAP_TYPE_UPLOAD,
             ..Default::default()
         };
-        let resource_desc = D3D12_RESOURCE_DESC::Buffer(vertex_buffer_size); // Use helper
+
+        // Fix: Manually construct D3D12_RESOURCE_DESC for a buffer
+        let resource_desc = D3D12_RESOURCE_DESC {
+            Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
+            Alignment: 0, // Default alignment
+            Width: vertex_buffer_size,
+            Height: 1,                   // Required for buffers
+            DepthOrArraySize: 1,         // Required for buffers
+            MipLevels: 1,                // Required for buffers
+            Format: DXGI_FORMAT_UNKNOWN, // Required for buffers
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            }, // Required for buffers
+            Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR, // Required for buffers
+            Flags: D3D12_RESOURCE_FLAG_NONE,
+        };
 
         let mut vertex_buffer: Option<ID3D12Resource> = None;
         unsafe {
@@ -1071,18 +1099,6 @@ mod d3d12_hello_triangle_buffered {
             ptr.read()
             // Note: This assumes the layout of `[MaybeUninit<T>; N]` is identical to `[T; N]`,
             // which is guaranteed by the language.
-        }
-    }
-
-    // Helper From impl for D3D12_SHADER_BYTECODE from ID3DBlob
-    impl From<&ID3DBlob> for D3D12_SHADER_BYTECODE {
-        fn from(blob: &ID3DBlob) -> Self {
-            unsafe {
-                D3D12_SHADER_BYTECODE {
-                    pShaderBytecode: blob.GetBufferPointer(),
-                    BytecodeLength: blob.GetBufferSize(),
-                }
-            }
         }
     }
 } // end mod d3d12_hello_triangle_buffered
