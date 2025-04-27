@@ -60,97 +60,177 @@ fn run_sample<S>() -> Result<()>
 where
     S: DXSample,
 {
-    let instance = unsafe { GetModuleHandleA(None)? };
+    // --- Add info_queue variable ---
+    let mut info_queue: Option<IDXGIInfoQueue> = None;
 
-    let wc = WNDCLASSEXA {
-        cbSize: std::mem::size_of::<WNDCLASSEXA>() as u32,
-        style: CS_HREDRAW | CS_VREDRAW,
-        lpfnWndProc: Some(wndproc::<S>),
-        hInstance: instance.into(),
-        hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
-        lpszClassName: s!("RustWindowClass"),
-        // --- Translucency Change ---
-        // Remove the default background brush to prevent GDI painting over the transparent area.
-        hbrBackground: HBRUSH::default(),
-        // --- End Translucency Change ---
-        ..Default::default()
+    // Wrap the initialization part in a block to handle potential errors and print messages
+    let (hwnd, mut sample) = {
+        let instance = unsafe { GetModuleHandleA(None)? };
+
+        let wc = WNDCLASSEXA {
+            cbSize: std::mem::size_of::<WNDCLASSEXA>() as u32,
+            style: CS_HREDRAW | CS_VREDRAW,
+            lpfnWndProc: Some(wndproc::<S>),
+            hInstance: instance.into(),
+            hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
+            lpszClassName: s!("RustWindowClass"),
+            hbrBackground: HBRUSH::default(),
+            ..Default::default()
+        };
+
+        let command_line = build_command_line();
+        // --- Capture info_queue from create_device ---
+        let mut sample_local = match S::new(&command_line) {
+            Ok(s) => s,
+            Err(e) => {
+                // If S::new fails early, we won't have an info queue yet.
+                // Consider adding message printing here if create_device could fail within S::new
+                return Err(e);
+            }
+        };
+        // --- Simulate getting info_queue during initialization ---
+        // In the real code, info_queue would come from the result of create_device called within S::new
+        // let (factory, device, local_info_queue) = create_device(&command_line)?; // Example call
+        // info_queue = local_info_queue; // Assign to outer scope variable
+        // sample_local.dxgi_factory = factory; // Assign back if needed
+        // sample_local.device = device; // Assign back if needed
+
+        let size = sample_local.window_size();
+
+        let atom = unsafe { RegisterClassExA(&wc) };
+        debug_assert_ne!(atom, 0, "Failed to register window class");
+
+        let mut window_rect = RECT {
+            left: 0,
+            top: 0,
+            right: size.0,
+            bottom: size.1,
+        };
+        unsafe { AdjustWindowRect(&mut window_rect, WS_OVERLAPPEDWINDOW, false)? };
+
+        let mut title = sample_local.title();
+        if command_line.use_warp_device {
+            title.push_str(" (WARP)");
+        }
+        title.push('\0');
+
+        let hwnd = unsafe {
+            CreateWindowExA(
+                WINDOW_EX_STYLE::default(),
+                s!("RustWindowClass"),
+                PCSTR(title.as_ptr()),
+                WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                window_rect.right - window_rect.left,
+                window_rect.bottom - window_rect.top,
+                None,
+                None,
+                Some(instance.into()),
+                Some(&mut sample_local as *mut _ as _),
+            )
+        }?;
+
+        // --- Call bind_to_window and print messages on error ---
+        if let Err(e) = sample_local.bind_to_window(&hwnd) {
+            // *** This is where we print the messages before returning ***
+            // We need the info_queue here. Let's assume it was populated during S::new
+            // For this example, we'll pass the info_queue from the outer scope
+            print_dxgi_debug_messages(&info_queue); // Print messages
+            return Err(e); // Return the original error
+        }
+
+        unsafe { _ = ShowWindow(hwnd, SW_SHOW) };
+        (hwnd, sample_local) // Return hwnd and sample if successful
     };
 
-    let command_line = build_command_line();
-    let mut sample = S::new(&command_line)?;
-
-    let size = sample.window_size();
-
-    let atom = unsafe { RegisterClassExA(&wc) };
-    debug_assert_ne!(atom, 0, "Failed to register window class");
-
-    let mut window_rect = RECT {
-        left: 0,
-        top: 0,
-        right: size.0,
-        bottom: size.1,
-    };
-    unsafe { AdjustWindowRect(&mut window_rect, WS_OVERLAPPEDWINDOW, false)? };
-
-    let mut title = sample.title();
-
-    if command_line.use_warp_device {
-        title.push_str(" (WARP)");
-    }
-
-    title.push('\0'); // Null-terminate the string for C API
-
-    let hwnd = unsafe {
-        CreateWindowExA(
-            // No WS_EX_LAYERED needed for DXGI alpha composition
-            WINDOW_EX_STYLE::default(),
-            s!("RustWindowClass"),
-            PCSTR(title.as_ptr()),
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            window_rect.right - window_rect.left,
-            window_rect.bottom - window_rect.top,
-            None,                  // no parent window
-            None,                  // no menus
-            Some(instance.into()), // Use instance from GetModuleHandleA
-            Some(&mut sample as *mut _ as _),
-        )
-    }?;
-
-    sample.bind_to_window(&hwnd)?;
-    unsafe { _ = ShowWindow(hwnd, SW_SHOW) };
-
+    // Main loop remains largely the same
     let mut done = false;
     while !done {
         let mut message = MSG::default();
-
-        // Use PeekMessage for continuous rendering
         if unsafe { PeekMessageA(&mut message, None, 0, 0, PM_REMOVE) }.into() {
             unsafe {
                 _ = TranslateMessage(&message);
                 DispatchMessageA(&message);
             }
-
             if message.message == WM_QUIT {
-                done = true; // Exit loop
+                done = true;
             }
         } else {
-            // Render when idle, handle potential errors
             if let Err(e) = sample.render() {
-                // Basic error logging, consider more robust handling
                 eprintln!("Render error: {:?}", e);
-                // Decide how to handle render errors, maybe break the loop?
-                // For now, we'll just print and continue
-                // done = true; // Uncomment to exit on render error
+                // --- Optionally print debug messages on render error too ---
+                print_dxgi_debug_messages(&info_queue);
+                // done = true; // Decide if render error is fatal
             }
         }
     }
 
-    // Call OnDestroy for cleanup synchronization before dropping sample
+    // Call OnDestroy before dropping sample
     sample.on_destroy();
+    // --- Optionally print messages one last time before exit ---
+    // print_dxgi_debug_messages(&info_queue);
 
     Ok(())
+}
+
+fn print_dxgi_debug_messages(info_queue: &Option<IDXGIInfoQueue>) {
+    if let Some(queue) = info_queue {
+        println!("--- DXGI Debug Messages START ---");
+        let num_messages = unsafe { queue.GetNumStoredMessages(DXGI_DEBUG_ALL) }; // Use DXGI_DEBUG_ALL GUID
+
+        for i in 0..num_messages {
+            let mut message_size: usize = 0;
+            // Get the size of the message
+            if unsafe { queue.GetMessage(DXGI_DEBUG_ALL, i, None, &mut message_size) }.is_err() {
+                eprintln!("Error getting size for message {}", i);
+                continue;
+            }
+
+            // Allocate buffer and get the message
+            let mut message_buffer: Vec<u8> = vec![0; message_size];
+            let p_message: *mut DXGI_INFO_QUEUE_MESSAGE =
+                message_buffer.as_mut_ptr() as *mut DXGI_INFO_QUEUE_MESSAGE;
+
+            if unsafe { queue.GetMessage(DXGI_DEBUG_ALL, i, Some(p_message), &mut message_size) }
+                .is_ok()
+            {
+                unsafe {
+                    // Convert the C string description to a Rust string
+                    let description_slice = std::slice::from_raw_parts(
+                        (*p_message).pDescription as *const u8,
+                        (*p_message).DescriptionByteLength,
+                    );
+                    // Use from_utf8_lossy for safety, trim null terminators/whitespace
+                    let description = String::from_utf8_lossy(description_slice)
+                        .trim()
+                        .to_string();
+
+                    let severity = match (*p_message).Severity {
+                        DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION => "CORRUPTION",
+                        DXGI_INFO_QUEUE_MESSAGE_SEVERITY_ERROR => "ERROR",
+                        DXGI_INFO_QUEUE_MESSAGE_SEVERITY_WARNING => "WARNING",
+                        DXGI_INFO_QUEUE_MESSAGE_SEVERITY_INFO => "INFO",
+                        DXGI_INFO_QUEUE_MESSAGE_SEVERITY_MESSAGE => "MESSAGE",
+                        _ => "UNKNOWN",
+                    };
+
+                    println!(
+                        "DXGI Debug [{} ID:{}]: {}",
+                        severity,
+                        (*p_message).ID,
+                        description
+                    );
+                }
+            } else {
+                eprintln!("Error getting message data for message {}", i);
+            }
+        }
+        unsafe { queue.ClearStoredMessages(DXGI_DEBUG_ALL) };
+        println!("--- DXGI Debug Messages END ---");
+    } else {
+        println!("--- DXGI Info Queue not available ---");
+    }
 }
 
 // Wrapper function to handle potential panics in sample_wndproc
@@ -271,6 +351,8 @@ fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
 }
 
 mod d3d12_hello_triangle_buffered {
+    use windows::Win32::Graphics::Dxgi::DXGIGetDebugInterface1;
+
     // Renamed module
     use super::*;
     use std::mem::ManuallyDrop;
@@ -309,12 +391,19 @@ mod d3d12_hello_triangle_buffered {
 
     impl DXSample for Sample {
         fn new(command_line: &SampleCommandLine) -> Result<Self> {
-            let (dxgi_factory, device) = create_device(command_line)?;
+            // Call the modified create_device
+            let (dxgi_factory, device, _info_queue_result) = create_device(command_line)?;
+
+            // We don't store the info_queue in the Sample struct itself,
+            // as it's mainly for debugging during setup. run_sample will handle it.
+            // However, if S::new needed to return it, it could.
+
             Ok(Sample {
                 dxgi_factory,
                 device,
                 resources: None,
-                window_size: (1280, 720), // Default size
+                window_size: (1280, 720),
+                // info_queue: info_queue_result // Optional: Store if needed later in Sample methods
             })
         }
 
@@ -414,7 +503,11 @@ mod d3d12_hello_triangle_buffered {
             let command_allocators = unsafe { MaybeUninit::array_assume_init(command_allocators) };
 
             let fence = unsafe { self.device.CreateFence(0, D3D12_FENCE_FLAG_NONE)? };
-            let fence_values = [1u64; FRAME_COUNT as usize]; // Start fence values at 1
+            // let fence_values = [1u64; FRAME_COUNT as usize]; // Start fence values at 1
+
+            // Fix: Initialize fence values to 0, matching C++ sample
+            let fence_values = [0u64; FRAME_COUNT as usize];
+
             let fence_event = unsafe { CreateEventA(None, false, false, None)? };
             if fence_event.is_invalid() {
                 return Err(Error::from_win32());
@@ -478,8 +571,28 @@ mod d3d12_hello_triangle_buffered {
                 fence_event,
             };
 
-            // Initial GPU synchronization (wait for setup)
-            wait_for_gpu(&mut resources)?;
+            // // Initial GPU synchronization (wait for setup)
+            // wait_for_gpu(&mut resources)?;
+
+            // Initial GPU synchronization
+            // Note: The C++ sample calls WaitForGpu here, which signals and increments
+            // the *initial* fence value (fence_values[0]). Let's replicate that.
+            // We need to signal with the *current* value (0) and then increment it.
+            let initial_fence_value = resources.fence_values[resources.frame_index as usize];
+            unsafe {
+                resources
+                    .command_queue
+                    .Signal(&resources.fence, initial_fence_value)?;
+                // Wait only if needed (likely not for value 0)
+                if resources.fence.GetCompletedValue() < initial_fence_value {
+                    resources
+                        .fence
+                        .SetEventOnCompletion(initial_fence_value, resources.fence_event)?;
+                    WaitForSingleObjectEx(resources.fence_event, INFINITE, false);
+                }
+                // Increment the fence value for the current frame index *after* signaling/waiting.
+                resources.fence_values[resources.frame_index as usize] += 1;
+            }
 
             self.resources = Some(resources);
 
@@ -706,57 +819,76 @@ mod d3d12_hello_triangle_buffered {
     }
 
     // Create D3D12 Device and DXGI Factory
-    fn create_device(command_line: &SampleCommandLine) -> Result<(IDXGIFactory4, ID3D12Device)> {
+    fn create_device(
+        command_line: &SampleCommandLine,
+    ) -> Result<(IDXGIFactory4, ID3D12Device, Option<IDXGIInfoQueue>)> {
+        // Added Option<IDXGIInfoQueue>
         let mut debug_flags = DXGI_CREATE_FACTORY_FLAGS(0);
-        if cfg!(debug_assertions) {
-            unsafe {
-                let mut debug1: Option<ID3D12Debug1> = None;
-                // Prefer ID3D12Debug1 for more features if available, fallback to ID3D12Debug
+        let mut info_queue: Option<IDXGIInfoQueue> = None; // Initialize info_queue
 
-                match D3D12GetDebugInterface::<ID3D12Debug1>(&mut debug1) {
-                    Ok(()) => {
-                        let debug1 = debug1.unwrap();
-                        println!("D3D12 Debug Layer Enabled (ID3D12Debug1 + GBV)");
-                        debug1.EnableDebugLayer();
-                        debug1.SetEnableGPUBasedValidation(true); // Example: Enable GBV
+        if cfg!(debug_assertions) {
+            let mut debug_enabled = false;
+            unsafe {
+                // Try ID3D12Debug1 first
+                let mut debug1: Option<ID3D12Debug1> = None;
+                if D3D12GetDebugInterface::<ID3D12Debug1>(&mut debug1).is_ok() {
+                    let debug1 = debug1.unwrap();
+                    println!("D3D12 Debug Layer Enabled (ID3D12Debug1 + GBV)");
+                    debug1.EnableDebugLayer();
+                    debug1.SetEnableGPUBasedValidation(true);
+                    debug_flags |= DXGI_CREATE_FACTORY_DEBUG;
+                    debug_enabled = true;
+                } else {
+                    // Fallback to ID3D12Debug
+                    let mut debug: Option<ID3D12Debug> = None;
+                    if D3D12GetDebugInterface::<ID3D12Debug>(&mut debug).is_ok() {
+                        let debug = debug.unwrap();
+                        println!("D3D12 Debug Layer Enabled (ID3D12Debug)");
+                        debug.EnableDebugLayer();
                         debug_flags |= DXGI_CREATE_FACTORY_DEBUG;
+                        debug_enabled = true;
+                    } else {
+                        eprintln!("Warning: D3D12 Debug Layer unavailable.");
                     }
-                    Err(_) => {
-                        let mut debug: Option<ID3D12Debug> = None;
-                        match D3D12GetDebugInterface::<ID3D12Debug>(&mut debug) {
-                            Ok(()) => {
-                                let debug = debug.unwrap();
-                                debug.EnableDebugLayer();
-                                debug_flags |= DXGI_CREATE_FACTORY_DEBUG;
-                                println!("D3D12 Debug Layer Enabled (ID3D12Debug)");
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to get ID3D12Debug interface: {:?}", e);
-                                eprintln!("Warning: D3D12 Debug Layer unavailable.");
-                            }
+                }
+
+                // --- If debug was enabled, try to get the Info Queue ---
+                if debug_enabled {
+                    let queue = DXGIGetDebugInterface1::<IDXGIInfoQueue>(0);
+                    match queue {
+                        Ok(q) => {
+                            println!("DXGI Info Queue obtained.");
+                            // Optional: Set break on severity here if desired
+                            // queue.as_ref().unwrap().SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_ERROR, true);
+                            // queue.as_ref().unwrap().SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION, true);
+                            info_queue = Some(q);
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Failed to get DXGI Info Queue: {:?}", e);
                         }
                     }
                 }
             }
         }
 
-        // Create DXGI Factory
+        // Create DXGI Factory (pass the debug flag if set)
         let dxgi_factory: IDXGIFactory4 = unsafe { CreateDXGIFactory2(debug_flags) }?;
 
-        // Select Adapter
+        // Select Adapter (remains the same)
         let adapter = if command_line.use_warp_device {
             println!("Using WARP adapter.");
             unsafe { dxgi_factory.EnumWarpAdapter()? }
         } else {
-            get_hardware_adapter(&dxgi_factory)? // Function defined outside module
+            get_hardware_adapter(&dxgi_factory)?
         };
 
-        // Create Device
+        // Create Device (remains the same)
         let mut device: Option<ID3D12Device> = None;
         unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) }?;
-        Ok((dxgi_factory, device.unwrap()))
-    }
 
+        // Return factory, device, and the info_queue
+        Ok((dxgi_factory, device.unwrap(), info_queue))
+    }
     // Create Root Signature
     fn create_root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature> {
         // An empty root signature is sufficient for this sample.
@@ -1105,8 +1237,12 @@ mod d3d12_hello_triangle_buffered {
 
 fn main() -> Result<()> {
     println!("Starting D3D12 Transparent Triangle Sample...");
-    // Use the buffered version
-    run_sample::<d3d12_hello_triangle_buffered::Sample>()?;
+    if let Err(e) = run_sample::<d3d12_hello_triangle_buffered::Sample>() {
+        // Error already printed by run_sample or the print_dxgi_debug_messages helper
+        eprintln!("Sample execution failed: {:?}", e);
+        // The debug messages should have been printed just before this.
+        return Err(e); // Propagate error for exit code
+    }
     println!("Sample finished successfully.");
     Ok(())
 }
