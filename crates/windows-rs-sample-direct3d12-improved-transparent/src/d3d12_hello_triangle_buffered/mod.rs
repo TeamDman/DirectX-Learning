@@ -17,7 +17,6 @@ pub mod transition_barrier;
 pub mod wait_for_gpu;
 pub mod wait_for_gpu_idle;
 
-
 // Renamed module
 use std::mem::MaybeUninit; // Added MaybeUninit
 

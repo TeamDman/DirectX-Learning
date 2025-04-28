@@ -23,7 +23,7 @@ pub fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
         let adapter = match unsafe { factory.EnumAdapters1(i) } {
             Ok(a) => a,
             Err(e) if e.code() == DXGI_ERROR_NOT_FOUND => break, // No more adapters
-            Err(e) => return Err(e),                      // Other error
+            Err(e) => return Err(e),                             // Other error
         };
 
         let desc = unsafe { adapter.GetDesc1()? };
