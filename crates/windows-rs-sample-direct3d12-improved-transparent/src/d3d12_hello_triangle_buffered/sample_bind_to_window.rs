@@ -6,6 +6,7 @@ use windows::Win32::Graphics::Direct3D12::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::System::Threading::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::create_pipeline_state::create_pipeline_state;
 use super::create_root_signature::create_root_signature;
@@ -45,18 +46,26 @@ pub fn bind_to_window(sample: &mut Sample, hwnd: &HWND) -> Result<()> {
         ..Default::default()
     };
 
-    // Create swap chain using IDXGIFactory2 for CreateSwapChainForHwnd
+    // Create swap chain using IDXGIFactory2 for CreateSwapChainForComposition
     let factory2: IDXGIFactory2 = sample.dxgi_factory.cast()?; // Cast should succeed
     let swap_chain_base: IDXGISwapChain1 = unsafe {
-        factory2.CreateSwapChainForHwnd(
+        factory2.CreateSwapChainForComposition(
             &command_queue,
-            *hwnd,
             &swap_chain_desc,
-            None, // No fullscreen desc
             None, // No restrict to output
         )?
     };
     let swap_chain: IDXGISwapChain3 = swap_chain_base.cast()?;
+
+    // Set up the window for composition
+    unsafe {
+        // Make the window layered for transparency
+        let ex_style = GetWindowLongW(*hwnd, GWL_EXSTYLE);
+        SetWindowLongW(*hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+        
+        // Set the window to use layered window attributes
+        SetLayeredWindowAttributes(*hwnd, COLORREF(0), 255, LWA_ALPHA)?;
+    }
 
     // Prevent automatic Alt+Enter fullscreen transitions
     unsafe {
@@ -185,9 +194,6 @@ pub fn bind_to_window(sample: &mut Sample, hwnd: &HWND) -> Result<()> {
         fence_values,
         fence_event,
     };
-
-    // // Initial GPU synchronization (wait for setup)
-    // wait_for_gpu(&mut resources)?;
 
     // Initial GPU synchronization
     // Note: The C++ sample calls WaitForGpu here, which signals and increments
