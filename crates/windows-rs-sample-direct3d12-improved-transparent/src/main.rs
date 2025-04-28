@@ -15,7 +15,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 // Removed BOOL helper, use TRUE/FALSE directly
 
 trait DXSample {
-    fn new(command_line: &SampleCommandLine) -> Result<Self>
+    fn new(command_line: &SampleCommandLine) -> Result<(Self, Option<IDXGIInfoQueue>)>
     where
         Self: Sized;
 
@@ -80,20 +80,17 @@ where
 
         let command_line = build_command_line();
         // --- Capture info_queue from create_device ---
-        let mut sample_local = match S::new(&command_line) {
-            Ok(s) => s,
+        let (mut sample_local, local_info_queue) = match S::new(&command_line) {
+            Ok(result) => result,
             Err(e) => {
                 // If S::new fails early, we won't have an info queue yet.
                 // Consider adding message printing here if create_device could fail within S::new
                 return Err(e);
             }
         };
-        // --- Simulate getting info_queue during initialization ---
-        // In the real code, info_queue would come from the result of create_device called within S::new
-        // let (factory, device, local_info_queue) = create_device(&command_line)?; // Example call
-        // info_queue = local_info_queue; // Assign to outer scope variable
-        // sample_local.dxgi_factory = factory; // Assign back if needed
-        // sample_local.device = device; // Assign back if needed
+        
+        // Store the info_queue from the Sample::new result
+        info_queue = local_info_queue;
 
         let size = sample_local.window_size();
 
@@ -390,21 +387,17 @@ mod d3d12_hello_triangle_buffered {
     }
 
     impl DXSample for Sample {
-        fn new(command_line: &SampleCommandLine) -> Result<Self> {
+        fn new(command_line: &SampleCommandLine) -> Result<(Self, Option<IDXGIInfoQueue>)> {
             // Call the modified create_device
-            let (dxgi_factory, device, _info_queue_result) = create_device(command_line)?;
+            let (dxgi_factory, device, info_queue) = create_device(command_line)?;
 
-            // We don't store the info_queue in the Sample struct itself,
-            // as it's mainly for debugging during setup. run_sample will handle it.
-            // However, if S::new needed to return it, it could.
-
-            Ok(Sample {
+            // Return both the Sample and the Info Queue
+            Ok((Sample {
                 dxgi_factory,
                 device,
                 resources: None,
                 window_size: (1280, 720),
-                // info_queue: info_queue_result // Optional: Store if needed later in Sample methods
-            })
+            }, info_queue))
         }
 
         fn bind_to_window(&mut self, hwnd: &HWND) -> Result<()> {
