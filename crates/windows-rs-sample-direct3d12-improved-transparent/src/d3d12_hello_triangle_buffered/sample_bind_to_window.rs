@@ -62,10 +62,8 @@ pub fn bind_to_window(sample: &mut Sample, hwnd: &HWND) -> Result<()> {
         // Make the window layered for transparency
         let ex_style = GetWindowLongW(*hwnd, GWL_EXSTYLE);
         SetWindowLongW(*hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
-        // SetWindowLongW(*hwnd, GWL_EXSTYLE, ex_style);
         
         // Set the window to use layered window attributes
-        // SetLayeredWindowAttributes(*hwnd, COLORREF(0), 255, LWA_ALPHA)?;
         SetLayeredWindowAttributes(*hwnd, COLORREF(0), 125, LWA_ALPHA)?;
     }
 
