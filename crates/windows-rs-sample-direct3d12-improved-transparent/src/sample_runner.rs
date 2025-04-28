@@ -7,7 +7,6 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::dx_sample::build_command_line;
 use crate::dx_sample::DXSample;
-use crate::dx_sample::SampleCommandLine;
 
 /// Runs a DirectX sample that implements the DXSample trait
 pub fn run_sample<S>() -> Result<()>
@@ -15,10 +14,10 @@ where
     S: DXSample,
 {
     // --- Add info_queue variable ---
-    let mut info_queue: Option<IDXGIInfoQueue> = None;
+    let info_queue: Option<IDXGIInfoQueue>;
 
     // Wrap the initialization part in a block to handle potential errors and print messages
-    let (hwnd, mut sample) = {
+    let (_hwnd, mut sample) = {
         let instance = unsafe { GetModuleHandleA(None)? };
 
         let wc = WNDCLASSEXA {
@@ -107,13 +106,11 @@ where
             if message.message == WM_QUIT {
                 done = true;
             }
-        } else {
-            if let Err(e) = sample.render() {
-                eprintln!("Render error: {:?}", e);
-                // --- Optionally print debug messages on render error too ---
-                print_dxgi_debug_messages(&info_queue);
-                // done = true; // Decide if render error is fatal
-            }
+        } else if let Err(e) = sample.render() {
+            eprintln!("Render error: {:?}", e);
+            // --- Optionally print debug messages on render error too ---
+            print_dxgi_debug_messages(&info_queue);
+            // done = true; // Decide if render error is fatal
         }
     }
 

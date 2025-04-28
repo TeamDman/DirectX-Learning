@@ -17,6 +17,7 @@ pub trait DXSample {
     fn on_destroy(&mut self);
 
     /// Update method called each frame (empty by default)
+    #[allow(unused)]
     fn update(&mut self) {}
 
     /// Render method called each frame (returns Ok by default)

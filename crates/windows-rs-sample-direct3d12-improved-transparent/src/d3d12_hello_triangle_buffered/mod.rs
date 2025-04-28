@@ -17,11 +17,8 @@ pub mod transition_barrier;
 pub mod wait_for_gpu;
 pub mod wait_for_gpu_idle;
 
-use windows::Win32::Graphics::Dxgi::DXGIGetDebugInterface1;
 
 // Renamed module
-use super::*;
-use std::mem::ManuallyDrop;
 use std::mem::MaybeUninit; // Added MaybeUninit
 
 // --- std::mem::MaybeUninit helpers ---

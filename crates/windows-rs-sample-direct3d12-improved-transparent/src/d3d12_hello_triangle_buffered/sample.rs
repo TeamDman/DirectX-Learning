@@ -1,14 +1,7 @@
 use windows::core::*;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Direct3D::Fxc::*;
-use windows::Win32::Graphics::Direct3D::*;
 use windows::Win32::Graphics::Direct3D12::*;
-use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
-use windows::Win32::Graphics::Gdi::HBRUSH;
-use windows::Win32::System::LibraryLoader::*;
-use windows::Win32::System::Threading::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::dx_sample::DXSample;
 
