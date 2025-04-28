@@ -12,21 +12,21 @@ pub trait DXSample {
 
     /// Binds the sample to a window handle
     fn bind_to_window(&mut self, hwnd: &HWND) -> Result<()>;
-    
+
     /// Called when the sample is being destroyed for cleanup
     fn on_destroy(&mut self);
 
     /// Update method called each frame (empty by default)
     fn update(&mut self) {}
-    
+
     /// Render method called each frame (returns Ok by default)
     fn render(&mut self) -> Result<()> {
         Ok(())
     }
-    
+
     /// Called when a key is released
     fn on_key_up(&mut self, _key: u8) {}
-    
+
     /// Called when a key is pressed
     fn on_key_down(&mut self, _key: u8) {}
 
@@ -58,4 +58,4 @@ pub fn build_command_line() -> SampleCommandLine {
     }
 
     SampleCommandLine { use_warp_device }
-} 
+}
