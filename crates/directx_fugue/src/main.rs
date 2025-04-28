@@ -16,7 +16,7 @@ struct Vertex {
     pos: [f32; 2], // x, y
 }
 
-fn main() -> eyre::Result<()> {
+pub fn main() -> eyre::Result<()> {
     // --- Setup (Window Class, Instance) ---
     let hinstance = unsafe { GetModuleHandleW(None)? }.into();
     let class_name_ws = widestring::U16CString::from_str(CLASS_NAME)?;

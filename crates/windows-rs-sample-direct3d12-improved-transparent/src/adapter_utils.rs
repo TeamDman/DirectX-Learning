@@ -1,19 +1,20 @@
 use windows::core::*;
 use windows::Win32::Graphics::Direct3D::*;
-use windows::Win32::Graphics::Direct3D12::{D3D12CreateDevice, ID3D12Device};
+use windows::Win32::Graphics::Direct3D12::D3D12CreateDevice;
+use windows::Win32::Graphics::Direct3D12::ID3D12Device;
 use windows::Win32::Graphics::Dxgi::*;
 
 /// Enumerates hardware adapters and returns the first one that supports Direct3D 12.
-/// 
+///
 /// This function iterates through all available DXGI adapters, skipping software adapters,
 /// and returns the first hardware adapter that supports Direct3D 12 Feature Level 11.0.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `factory` - The DXGI factory to use for enumerating adapters
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `Ok(IDXGIAdapter1)` - The first compatible hardware adapter
 /// * `Err(Error)` - If no suitable adapter is found or another error occurs
 pub fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
@@ -58,4 +59,4 @@ pub fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
         DXGI_ERROR_NOT_FOUND, // Or E_FAIL
         "No suitable D3D12 hardware adapter found.",
     ))
-} 
+}

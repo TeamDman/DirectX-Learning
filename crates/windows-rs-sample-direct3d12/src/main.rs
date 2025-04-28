@@ -35,7 +35,7 @@ struct SampleCommandLine {
     use_warp_device: bool,
 }
 
-fn build_command_line() -> SampleCommandLine {
+pub fn build_command_line() -> SampleCommandLine {
     let mut use_warp_device = false;
 
     for arg in std::env::args() {
@@ -47,7 +47,7 @@ fn build_command_line() -> SampleCommandLine {
     SampleCommandLine { use_warp_device }
 }
 
-fn run_sample<S>() -> Result<()>
+pub fn run_sample<S>() -> Result<()>
 where
     S: DXSample,
 {
@@ -125,7 +125,7 @@ where
     Ok(())
 }
 
-fn sample_wndproc<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
+pub fn sample_wndproc<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
     match message {
         WM_KEYDOWN => {
             sample.on_key_down(wparam.0 as u8);
@@ -177,7 +177,7 @@ extern "system" fn wndproc<S: DXSample>(
     }
 }
 
-fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
+pub fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
     for i in 0.. {
         let adapter = unsafe { factory.EnumAdapters1(i)? };
         let desc = unsafe { adapter.GetDesc1()? };
@@ -791,7 +791,7 @@ mod d3d12_hello_triangle {
     }
 }
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     run_sample::<d3d12_hello_triangle::Sample>()?;
 
     Ok(())

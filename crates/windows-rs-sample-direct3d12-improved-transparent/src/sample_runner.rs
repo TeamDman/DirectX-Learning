@@ -186,13 +186,13 @@ pub fn print_dxgi_debug_messages(info_queue: &Option<IDXGIInfoQueue>) {
 }
 
 // Wrapper function to handle potential panics in sample_wndproc
-fn safe_sample_wndproc<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
+pub fn safe_sample_wndproc<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
     // Direct call for simplicity here:
     sample_wndproc_impl(sample, message, wparam)
 }
 
 // Original logic moved here
-fn sample_wndproc_impl<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
+pub fn sample_wndproc_impl<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
     match message {
         WM_KEYDOWN => {
             sample.on_key_down(wparam.0 as u8);

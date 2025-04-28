@@ -39,7 +39,7 @@ struct SampleCommandLine {
     use_warp_device: bool,
 }
 
-fn build_command_line() -> SampleCommandLine {
+pub fn build_command_line() -> SampleCommandLine {
     let mut use_warp_device = false;
 
     for arg in std::env::args() {
@@ -51,7 +51,7 @@ fn build_command_line() -> SampleCommandLine {
     SampleCommandLine { use_warp_device }
 }
 
-fn run_sample<S>() -> Result<()>
+pub fn run_sample<S>() -> Result<()>
 where
     S: DXSample,
 {
@@ -141,7 +141,7 @@ where
 }
 
 // Wrapper function to handle potential panics in sample_wndproc
-fn safe_sample_wndproc<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
+pub fn safe_sample_wndproc<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
     // Use catch_unwind if you need to handle panics gracefully,
     // otherwise direct call is fine for simpler examples.
     // std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -153,7 +153,7 @@ fn safe_sample_wndproc<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM
 }
 
 // Original logic moved here
-fn sample_wndproc_impl<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
+pub fn sample_wndproc_impl<S: DXSample>(sample: &mut S, message: u32, wparam: WPARAM) -> bool {
     match message {
         WM_KEYDOWN => {
             sample.on_key_down(wparam.0 as u8);
@@ -218,7 +218,7 @@ extern "system" fn wndproc<S: DXSample>(
     }
 }
 
-fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
+pub fn get_hardware_adapter(factory: &IDXGIFactory4) -> Result<IDXGIAdapter1> {
     for i in 0.. {
         let adapter = unsafe { factory.EnumAdapters1(i)? };
         let desc = unsafe { adapter.GetDesc1()? };
@@ -1001,7 +1001,7 @@ mod d3d12_hello_triangle_buffered {
     }
 } // end mod d3d12_hello_triangle_buffered
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     // Use the buffered version
     run_sample::<d3d12_hello_triangle_buffered::Sample>()?;
     Ok(())
