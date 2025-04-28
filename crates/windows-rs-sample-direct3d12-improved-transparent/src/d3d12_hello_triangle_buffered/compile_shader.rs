@@ -1,3 +1,5 @@
+use tracing::error;
+use tracing::info;
 use windows::core::*;
 use windows::Win32::Graphics::Direct3D::Fxc::*;
 use windows::Win32::Graphics::Direct3D::*;
@@ -9,6 +11,7 @@ pub fn compile_shader(
     target: PCSTR,
     flags: u32,
 ) -> Result<ID3DBlob> {
+    info!("Compiling shader from {}", hlsl_path);
     let mut shader_blob = None;
     let mut error_blob = None;
     let result = unsafe {
@@ -26,6 +29,7 @@ pub fn compile_shader(
     };
 
     if let Err(e) = result {
+        error!("Shader compilation failed: {:?}", e);
         if let Some(error) = error_blob {
             let error_msg = unsafe {
                 String::from_utf8_lossy(std::slice::from_raw_parts(
@@ -36,13 +40,15 @@ pub fn compile_shader(
             // Use from_utf8_lossy for safe display of potentially non-UTF8 PCSTR
             let entry_point_str = unsafe { String::from_utf8_lossy(entry_point.as_bytes()) };
             let target_str = unsafe { String::from_utf8_lossy(target.as_bytes()) };
-            eprintln!(
+            error!(
                 "Shader Compile Error ({} {}): {}",
                 entry_point_str, target_str, error_msg
             );
         }
         Err(e)
     } else {
-        Ok(shader_blob.unwrap()) // Safe on success
+        let blob = shader_blob.unwrap();
+        info!("Shader compiled successfully! blob size: {}", unsafe { blob.GetBufferSize() });
+        Ok(blob) // Safe on success
     }
 }
