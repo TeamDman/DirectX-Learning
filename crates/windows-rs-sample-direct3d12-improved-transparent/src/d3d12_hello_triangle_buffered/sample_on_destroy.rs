@@ -1,4 +1,5 @@
 use crate::d3d12_hello_triangle_buffered::wait_for_gpu_idle::wait_for_gpu_idle;
+use tracing::info;
 use windows::Win32::Foundation::*;
 
 use super::sample::Sample;
@@ -18,5 +19,5 @@ pub fn on_destroy(sample: &mut Sample) {
         }
     }
     // Resources are dropped automatically when `self.resources` goes out of scope
-    println!("Sample destroyed.");
+    info!("Sample destroyed.");
 }

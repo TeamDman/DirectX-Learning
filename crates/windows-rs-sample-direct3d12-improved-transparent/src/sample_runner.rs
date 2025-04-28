@@ -1,3 +1,4 @@
+use tracing::warn;
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dxgi::*;
@@ -125,14 +126,14 @@ where
 /// Prints DXGI debug messages from the info queue
 pub fn print_dxgi_debug_messages(info_queue: &Option<IDXGIInfoQueue>) {
     if let Some(queue) = info_queue {
-        println!("--- DXGI Debug Messages START ---");
+        warn!("--- DXGI Debug Messages START ---");
         let num_messages = unsafe { queue.GetNumStoredMessages(DXGI_DEBUG_ALL) }; // Use DXGI_DEBUG_ALL GUID
 
         for i in 0..num_messages {
             let mut message_size: usize = 0;
             // Get the size of the message
             if unsafe { queue.GetMessage(DXGI_DEBUG_ALL, i, None, &mut message_size) }.is_err() {
-                eprintln!("Error getting size for message {}", i);
+                warn!("Error getting size for message {}", i);
                 continue;
             }
 
@@ -164,7 +165,7 @@ pub fn print_dxgi_debug_messages(info_queue: &Option<IDXGIInfoQueue>) {
                         _ => "UNKNOWN",
                     };
 
-                    println!(
+                    warn!(
                         "DXGI Debug [{} ID:{}]: {}",
                         severity,
                         (*p_message).ID,
@@ -172,13 +173,13 @@ pub fn print_dxgi_debug_messages(info_queue: &Option<IDXGIInfoQueue>) {
                     );
                 }
             } else {
-                eprintln!("Error getting message data for message {}", i);
+                warn!("Error getting message data for message {}", i);
             }
         }
         unsafe { queue.ClearStoredMessages(DXGI_DEBUG_ALL) };
-        println!("--- DXGI Debug Messages END ---");
+        warn!("--- DXGI Debug Messages END ---");
     } else {
-        println!("--- DXGI Info Queue not available ---");
+        warn!("--- DXGI Info Queue not available ---");
     }
 }
 

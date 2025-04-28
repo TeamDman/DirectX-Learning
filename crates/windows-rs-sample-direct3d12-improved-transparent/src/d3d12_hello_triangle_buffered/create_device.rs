@@ -1,3 +1,4 @@
+use tracing::info;
 use windows::core::*;
 use windows::Win32::Graphics::Direct3D::*;
 use windows::Win32::Graphics::Direct3D12::*;
@@ -21,7 +22,7 @@ pub fn create_device(
             let mut debug1: Option<ID3D12Debug1> = None;
             if D3D12GetDebugInterface::<ID3D12Debug1>(&mut debug1).is_ok() {
                 let debug1 = debug1.unwrap();
-                println!("D3D12 Debug Layer Enabled (ID3D12Debug1 + GBV)");
+                info!("D3D12 Debug Layer Enabled (ID3D12Debug1 + GBV)");
                 debug1.EnableDebugLayer();
                 debug1.SetEnableGPUBasedValidation(true);
                 debug_flags |= DXGI_CREATE_FACTORY_DEBUG;
@@ -31,7 +32,7 @@ pub fn create_device(
                 let mut debug: Option<ID3D12Debug> = None;
                 if D3D12GetDebugInterface::<ID3D12Debug>(&mut debug).is_ok() {
                     let debug = debug.unwrap();
-                    println!("D3D12 Debug Layer Enabled (ID3D12Debug)");
+                    info!("D3D12 Debug Layer Enabled (ID3D12Debug)");
                     debug.EnableDebugLayer();
                     debug_flags |= DXGI_CREATE_FACTORY_DEBUG;
                     debug_enabled = true;
@@ -45,7 +46,7 @@ pub fn create_device(
                 let queue = DXGIGetDebugInterface1::<IDXGIInfoQueue>(0);
                 match queue {
                     Ok(q) => {
-                        println!("DXGI Info Queue obtained.");
+                        info!("DXGI Info Queue obtained.");
                         // Optional: Set break on severity here if desired
                         // queue.as_ref().unwrap().SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_ERROR, true);
                         // queue.as_ref().unwrap().SetBreakOnSeverity(DXGI_DEBUG_ALL, DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION, true);
@@ -64,7 +65,7 @@ pub fn create_device(
 
     // Select Adapter (remains the same)
     let adapter = if command_line.use_warp_device {
-        println!("Using WARP adapter.");
+        info!("Using WARP adapter.");
         unsafe { dxgi_factory.EnumWarpAdapter()? }
     } else {
         get_hardware_adapter(&dxgi_factory)?
