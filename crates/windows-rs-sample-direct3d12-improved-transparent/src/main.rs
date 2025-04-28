@@ -12,49 +12,15 @@ use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+// Import the DXSample trait and related items from the new module
+mod dx_sample;
+use dx_sample::{DXSample, SampleCommandLine, build_command_line};
+
 // Removed BOOL helper, use TRUE/FALSE directly
 
-trait DXSample {
-    fn new(command_line: &SampleCommandLine) -> Result<(Self, Option<IDXGIInfoQueue>)>
-    where
-        Self: Sized;
+// Removed DXSample trait definition - now in dx_sample.rs
 
-    fn bind_to_window(&mut self, hwnd: &HWND) -> Result<()>;
-    fn on_destroy(&mut self); // Added for cleanup synchronization
-
-    fn update(&mut self) {}
-    fn render(&mut self) -> Result<()> {
-        // Changed to return Result
-        Ok(())
-    }
-    fn on_key_up(&mut self, _key: u8) {}
-    fn on_key_down(&mut self, _key: u8) {}
-
-    fn title(&self) -> String {
-        "DXSample".into()
-    }
-
-    fn window_size(&self) -> (i32, i32) {
-        (640, 480)
-    }
-}
-
-#[derive(Clone)]
-struct SampleCommandLine {
-    use_warp_device: bool,
-}
-
-fn build_command_line() -> SampleCommandLine {
-    let mut use_warp_device = false;
-
-    for arg in std::env::args() {
-        if arg.eq_ignore_ascii_case("-warp") || arg.eq_ignore_ascii_case("/warp") {
-            use_warp_device = true;
-        }
-    }
-
-    SampleCommandLine { use_warp_device }
-}
+// Removed SampleCommandLine struct and build_command_line function - now in dx_sample.rs
 
 fn run_sample<S>() -> Result<()>
 where
