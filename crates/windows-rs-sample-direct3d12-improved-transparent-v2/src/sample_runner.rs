@@ -28,7 +28,7 @@ where
             hInstance: instance.into(),
             hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
             lpszClassName: s!("RustWindowClass"),
-            hbrBackground: HBRUSH::default(),
+            hbrBackground: HBRUSH::default(), // Keep default background
             ..Default::default()
         };
 
@@ -67,10 +67,12 @@ where
 
         let hwnd = unsafe {
             CreateWindowExA(
-                WINDOW_EX_STYLE(WS_EX_LAYERED.0 as u32),
+                // --- Removed WS_EX_LAYERED ---
+                // WINDOW_EX_STYLE(WS_EX_LAYERED.0 as u32),
+                WINDOW_EX_STYLE(0), // Use default extended styles
                 s!("RustWindowClass"),
                 PCSTR(title.as_ptr()),
-                WS_OVERLAPPEDWINDOW,
+                WS_OVERLAPPEDWINDOW, // Keep WS_OVERLAPPEDWINDOW for decorations
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 window_rect.right - window_rect.left,
@@ -81,6 +83,9 @@ where
                 Some(&mut sample_local as *mut _ as _),
             )
         }?;
+
+        // --- Removed SetLayeredWindowAttributes ---
+        // Remove the call to SetLayeredWindowAttributes(*hwnd, COLORREF(0), 125, LWA_ALPHA)?;
 
         // --- Call bind_to_window and print messages on error ---
         if let Err(e) = sample_local.bind_to_window(&hwnd) {

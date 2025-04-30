@@ -57,15 +57,9 @@ pub fn bind_to_window(sample: &mut Sample, hwnd: &HWND) -> Result<()> {
     };
     let swap_chain: IDXGISwapChain3 = swap_chain_base.cast()?;
 
-    // Set up the window for composition
-    unsafe {
-        // Make the window layered for transparency
-        let ex_style = GetWindowLongW(*hwnd, GWL_EXSTYLE);
-        SetWindowLongW(*hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
-        
-        // Set the window to use layered window attributes
-        SetLayeredWindowAttributes(*hwnd, COLORREF(0), 125, LWA_ALPHA)?;
-    }
+    // --- Removed GDI Layered Window Transparency ---
+    // Remove the WS_EX_LAYERED style and SetLayeredWindowAttributes call.
+    // DWM composition with DXGI_ALPHA_MODE_PREMULTIPLIED handles the transparency.
 
     // Prevent automatic Alt+Enter fullscreen transitions
     unsafe {

@@ -89,20 +89,23 @@ pub fn create_pipeline_state(
             ..Default::default()
         },
         // --- Translucency Change ---
-        // Explicitly define blend state. Default disables blending but allows alpha write.
+        // Configure blend state for standard alpha blending.
         BlendState: D3D12_BLEND_DESC {
-            AlphaToCoverageEnable: FALSE,  // No multisampling
+            AlphaToCoverageEnable: FALSE, // No multisampling
             IndependentBlendEnable: FALSE, // Same blend for all RTs (only have 1)
             RenderTarget: [
                     D3D12_RENDER_TARGET_BLEND_DESC {
-                        BlendEnable: FALSE, // Blending is OFF (triangle is opaque)
+                        BlendEnable: TRUE, // Enable blending
                         LogicOpEnable: FALSE,
-                        // The rest are ignored if BlendEnable is FALSE, but set defaults:
-                        SrcBlend: D3D12_BLEND_ONE,
-                        DestBlend: D3D12_BLEND_ZERO,
+                        // Standard alpha blending: SourceColor * SourceAlpha + DestColor * (1 - SourceAlpha)
+                        // Since we're using DXGI_ALPHA_MODE_PREMULTIPLIED, the source colors
+                        // from the pixel shader should be pre-multiplied.
+                        SrcBlend: D3D12_BLEND_ONE,             // Source color is (SourceColor * SourceAlpha) because of pre-multiplied alpha
+                        DestBlend: D3D12_BLEND_INV_SRC_ALPHA, // Destination color is multiplied by (1 - SourceAlpha)
                         BlendOp: D3D12_BLEND_OP_ADD,
-                        SrcBlendAlpha: D3D12_BLEND_ONE,
-                        DestBlendAlpha: D3D12_BLEND_ZERO,
+                        // For the alpha channel blend: FinalAlpha = SourceAlpha * 1 + DestAlpha * 0 = SourceAlpha
+                        SrcBlendAlpha: D3D12_BLEND_ONE,       // Use source alpha
+                        DestBlendAlpha: D3D12_BLEND_ZERO,     // Ignore destination alpha
                         BlendOpAlpha: D3D12_BLEND_OP_ADD,
                         LogicOp: D3D12_LOGIC_OP_NOOP,
                         // Ensure alpha channel from PS is written to the RT
