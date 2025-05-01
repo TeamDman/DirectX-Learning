@@ -1,0 +1,1 @@
+This sample improves on v1 by separating concerns to smaller files so AI can rewrite stuff more easily.

@@ -1,5 +1,5 @@
 [package]
-name = "sample_direct3d12_improved_transparent"
+name = "sample_direct3d12_improved_transparent_v2"
 version = "0.0.0"
 edition = "2021"
 publish = false
