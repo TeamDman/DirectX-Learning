@@ -706,14 +706,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sample_direct3d12_improved"
-version = "0.0.0"
-dependencies = [
- "array-init",
- "windows",
-]
-
-[[package]]
 name = "sample_direct3d12_improved_transparent_v1_failing"
 version = "0.0.0"
 dependencies = [
@@ -732,6 +724,40 @@ dependencies = [
  "eyre",
  "tracing",
  "tracing-subscriber",
+ "windows",
+]
+
+[[package]]
+name = "sample_direct3d12_improved_v1"
+version = "0.0.0"
+dependencies = [
+ "array-init",
+ "windows",
+]
+
+[[package]]
+name = "sample_direct3d12_improved_v2"
+version = "0.0.0"
+dependencies = [
+ "array-init",
+ "color-eyre",
+ "eyre",
+ "tracing",
+ "tracing-subscriber",
+ "widestring",
+ "windows",
+]
+
+[[package]]
+name = "sample_direct3d12_improved_v3"
+version = "0.0.0"
+dependencies = [
+ "array-init",
+ "color-eyre",
+ "eyre",
+ "tracing",
+ "tracing-subscriber",
+ "widestring",
  "windows",
 ]
 
