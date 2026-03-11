@@ -30,6 +30,7 @@ pub struct Resources {
     pub command_list: ID3D12GraphicsCommandList,
     pub vertex_buffer: ID3D12Resource, // Keep vertex buffer handle
     pub vbv: D3D12_VERTEX_BUFFER_VIEW,
+    pub time: f32,
 }
 
 pub fn bind_to_window(
@@ -174,6 +175,7 @@ pub fn bind_to_window(
         fence,
         fence_values, // Store the array
         fence_event,
+        time: 0.0,
     };
 
     // Wait for GPU to finish any initial setup potentially submitted implicitly
@@ -186,14 +188,44 @@ pub fn bind_to_window(
 
 // Create Root Signature
 fn create_root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature> {
+    let root_parameters: [D3D12_ROOT_PARAMETER; 2] = [
+        // Two parameters now
+        D3D12_ROOT_PARAMETER {
+            ParameterType: D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
+            Anonymous: D3D12_ROOT_PARAMETER_0 {
+                Constants: D3D12_ROOT_CONSTANTS {
+                    ShaderRegister: 0, // Register 0 for window width
+                    RegisterSpace: 0,  // Space 0
+                    Num32BitValues: 1, // One 32-bit value
+                },
+            },
+            ShaderVisibility: D3D12_SHADER_VISIBILITY_PIXEL, // Visible to the pixel shader
+        },
+        // --- Translucency Change: Add root constant for time ---
+        D3D12_ROOT_PARAMETER {
+            ParameterType: D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
+            Anonymous: D3D12_ROOT_PARAMETER_0 {
+                Constants: D3D12_ROOT_CONSTANTS {
+                    ShaderRegister: 1, // Register 1 for time
+                    RegisterSpace: 0,  // Space 0
+                    Num32BitValues: 1, // One 32-bit value
+                },
+            },
+            ShaderVisibility: D3D12_SHADER_VISIBILITY_PIXEL, // Visible to the pixel shader
+        },
+        // --- End Translucency Change ---
+    ];
+
     let desc = D3D12_ROOT_SIGNATURE_DESC {
         Flags: D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
-        ..Default::default()
+        pParameters: root_parameters.as_ptr(),
+        NumParameters: root_parameters.len() as u32,
+        pStaticSamplers: std::ptr::null(), // No samplers needed
+        NumStaticSamplers: 0,
     };
 
     let mut signature_blob = None;
     let mut error_blob = None;
-
     let signature = unsafe {
         D3D12SerializeRootSignature(
             &desc,
@@ -293,18 +325,28 @@ fn create_pipeline_state(
         },
         RasterizerState: D3D12_RASTERIZER_DESC {
             FillMode: D3D12_FILL_MODE_SOLID,
-            CullMode: D3D12_CULL_MODE_NONE, // Render both sides for simplicity
+            CullMode: D3D12_CULL_MODE_NONE, // Draw back faces too
             ..Default::default()
         },
         BlendState: D3D12_BLEND_DESC {
-            AlphaToCoverageEnable: FALSE,
-            IndependentBlendEnable: FALSE,
+            AlphaToCoverageEnable: FALSE,  // No multisampling
+            IndependentBlendEnable: FALSE, // Same blend for all RTs (only have 1)
             RenderTarget: [
                     D3D12_RENDER_TARGET_BLEND_DESC {
-                        BlendEnable: FALSE, // Disable blending
+                        BlendEnable: TRUE, // Enable blending
+                        // Standard Alpha Blending (Source Alpha * Source Color + (1 - Source Alpha) * Dest Color)
+                        SrcBlend: D3D12_BLEND_SRC_ALPHA,
+                        DestBlend: D3D12_BLEND_INV_SRC_ALPHA,
+                        BlendOp: D3D12_BLEND_OP_ADD,
+                        SrcBlendAlpha: D3D12_BLEND_ONE, // Use source alpha directly for alpha blending
+                        DestBlendAlpha: D3D12_BLEND_ZERO,
+                        BlendOpAlpha: D3D12_BLEND_OP_ADD,
+                        LogicOpEnable: FALSE,
+                        LogicOp: D3D12_LOGIC_OP_NOOP,
+                        // Ensure alpha channel from PS is written to the RT
                         RenderTargetWriteMask: D3D12_COLOR_WRITE_ENABLE_ALL.0 as u8,
-                        ..Default::default() // Sensible defaults for other fields
-                    }; 8 // Initialize all 8 render target blend descs
+                    };
+                    8 // Initialize all 8 render target blend descs
                 ],
         },
         DepthStencilState: D3D12_DEPTH_STENCIL_DESC {

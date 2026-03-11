@@ -58,6 +58,8 @@ impl WindowClass for MyBehaviour {
         // dxgi_factory: &mut IDXGIFactory4,
         resources: &mut Resources,
     ) -> MyResult<()> {
+        resources.time += 0.01;
+        info!("time: {}", resources.time);
         // Return Result
         // Record all the commands we need to render the scene into the command list.
         populate_command_list(resources)?; // Pass mutable ref
@@ -98,6 +100,11 @@ fn populate_command_list(resources: &mut Resources) -> MyResult<()> {
     // Set necessary state.
     unsafe {
         command_list.SetGraphicsRootSignature(&resources.root_signature);
+
+        let window_width = resources.viewport.Width; // Get width from viewport
+        command_list.SetGraphicsRoot32BitConstant(0, std::mem::transmute(window_width), 0); // index 0 (register 0), value, dest offset in constants
+        command_list.SetGraphicsRoot32BitConstant(1, std::mem::transmute(resources.time), 0); // index 1 (register 1), value, dest offset in constants
+
         command_list.RSSetViewports(&[resources.viewport]);
         command_list.RSSetScissorRects(&[resources.scissor_rect]);
     }
@@ -118,7 +125,7 @@ fn populate_command_list(resources: &mut Resources) -> MyResult<()> {
     unsafe { command_list.OMSetRenderTargets(1, Some(&rtv_handle), false, None) };
 
     // Record commands.
-    let clear_color = [0.0_f32, 0.2_f32, 0.4_f32, 1.0_f32]; // RGBA
+    let clear_color = [0.0_f32, 0.2_f32, 0.4_f32, 0.0_f32]; // RGBA
     unsafe {
         command_list.ClearRenderTargetView(rtv_handle, &clear_color, None); // Use array directly
         command_list.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
