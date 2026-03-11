@@ -1,0 +1,39 @@
+[package]
+name = "sample_direct3d12_improved_v5"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+chrono = "0.4"
+color-eyre = "0.6.5"
+eyre = "0.6.12"
+facet = "0.44.1"
+figue = { git = "https://github.com/TeamDman/figue", rev = "614af4ce3e42d8a64fce47730fa39034cad2de23" }
+tokio = { version = "1.49.0", features = ["rt-multi-thread"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
+teamy-windows = { path = "../../../teamy-rust-windows-utils" }
+
+[dependencies.windows]
+version = "0.62.2"
+default-features = false
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[build-dependencies]
+embed-resource = "3.0.6"
+
+[lints.clippy]
+multiple_unsafe_ops_per_block = "deny"
+undocumented_unsafe_blocks = "warn"
