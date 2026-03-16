@@ -26,7 +26,7 @@ impl WindowShowArgs {
             use_warp_device: self.warp,
             title: self
                 .title
-                .unwrap_or_else(|| "D3D12 transparent triangle v5".to_string()),
+                .unwrap_or_else(|| "D3D12 transparent triangle v6".to_string()),
         })
     }
 }

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use teamy_windows::module::get_current_module;
 use teamy_windows::string::EasyPCWSTR;
 use tracing::info;
-use windows::Win32::Foundation::{E_FAIL, FALSE, HANDLE, HWND, LPARAM, LRESULT, RECT, TRUE, WPARAM};
+use windows::Win32::Foundation::{E_FAIL, FALSE, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, TRUE, WPARAM};
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_DEBUG, D3DCOMPILE_SKIP_OPTIMIZATION, D3DCompileFromFile};
 use windows::Win32::Graphics::Direct3D::{D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ID3DBlob};
 use windows::Win32::Graphics::Direct3D12::*;
@@ -15,7 +15,27 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{Error, HSTRING, Interface, Owned, PCSTR, s, w};
 
 const FRAME_COUNT: usize = 2;
-const WINDOW_CLASS_NAME: windows::core::PCWSTR = w!("DirectXLearningTransparentTriangleV5");
+const WINDOW_CLASS_NAME: windows::core::PCWSTR = w!("DirectXLearningTransparentTriangleV6");
+
+const TRIANGLE_VERTEX_COUNT: usize = 3;
+const CURSOR_RING_SEGMENTS: usize = 48;
+const CURSOR_RING_VERTEX_COUNT: usize = CURSOR_RING_SEGMENTS * 6;
+const CURSOR_ARM_COUNT: usize = 4;
+const CURSOR_ARM_VERTEX_COUNT: usize = CURSOR_ARM_COUNT * 6;
+const MAX_VERTEX_COUNT: usize = TRIANGLE_VERTEX_COUNT + CURSOR_RING_VERTEX_COUNT + CURSOR_ARM_VERTEX_COUNT;
+
+const CURSOR_RING_INNER_RADIUS: f32 = 14.0;
+const CURSOR_RING_OUTER_RADIUS: f32 = 17.5;
+const CURSOR_ARM_LENGTH: f32 = 18.0;
+const CURSOR_ARM_THICKNESS: f32 = 2.5;
+const CURSOR_ARM_GAP: f32 = 7.0;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 4],
+}
 
 #[derive(Debug, Clone)]
 pub struct TransparentTriangleOptions {
@@ -64,7 +84,7 @@ fn create_window(options: &TransparentTriangleOptions) -> eyre::Result<HWND> {
         style: CS_HREDRAW | CS_VREDRAW,
         lpfnWndProc: Some(window_proc),
         hInstance: instance.into(),
-        hCursor: unsafe { LoadCursorW(None, IDC_ARROW)? },
+        hCursor: unsafe { LoadCursorW(None, IDC_CROSS)? },
         lpszClassName: WINDOW_CLASS_NAME,
         ..Default::default()
     };
@@ -122,6 +142,13 @@ unsafe extern "system" fn window_proc(
             let _ = unsafe { DestroyWindow(hwnd) };
             LRESULT(0)
         }
+        WM_SETCURSOR => {
+            if let Ok(cursor) = unsafe { LoadCursorW(None, IDC_CROSS) } {
+                let _ = unsafe { SetCursor(Some(cursor)) };
+                return LRESULT(1);
+            }
+            LRESULT(0)
+        }
         WM_NCHITTEST => LRESULT(HTCAPTION as isize),
         _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
     }
@@ -129,7 +156,7 @@ unsafe extern "system" fn window_proc(
 
 #[derive(Debug)]
 struct Renderer {
-    _hwnd: HWND,
+    hwnd: HWND,
     _dxgi_factory: IDXGIFactory4,
     _device: ID3D12Device,
     _dcomp_device: IDCompositionDevice,
@@ -145,12 +172,15 @@ struct Renderer {
     fence: ID3D12Fence,
     fence_value: u64,
     fence_event: Owned<HANDLE>,
+    frame_latency_waitable_object: Owned<HANDLE>,
     root_signature: ID3D12RootSignature,
     pipeline_state: ID3D12PipelineState,
-    _vertex_buffer: ID3D12Resource,
+    vertex_buffer: ID3D12Resource,
     vertex_buffer_view: D3D12_VERTEX_BUFFER_VIEW,
     viewport: D3D12_VIEWPORT,
     scissor_rect: RECT,
+    width: u32,
+    height: u32,
 }
 
 impl Renderer {
@@ -159,6 +189,10 @@ impl Renderer {
         let command_queue = create_command_queue(&device)?;
         let swap_chain = create_swap_chain(&dxgi_factory, &command_queue, options.width, options.height)?;
         unsafe { dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)? };
+        unsafe { swap_chain.SetMaximumFrameLatency(1)? };
+        let frame_latency_waitable_object = unsafe {
+            Owned::new(swap_chain.GetFrameLatencyWaitableObject())
+        };
 
         let (dcomp_device, dcomp_target, dcomp_visual) =
             attach_swap_chain_to_window(hwnd, &device, &swap_chain)?;
@@ -199,7 +233,7 @@ impl Renderer {
         };
 
         Ok(Self {
-            _hwnd: hwnd,
+            hwnd,
             _dxgi_factory: dxgi_factory,
             _device: device,
             _dcomp_device: dcomp_device,
@@ -215,16 +249,23 @@ impl Renderer {
             fence,
             fence_value: 1,
             fence_event,
+            frame_latency_waitable_object,
             root_signature,
             pipeline_state,
-            _vertex_buffer: vertex_buffer,
+            vertex_buffer,
             vertex_buffer_view,
             viewport,
             scissor_rect,
+            width: options.width,
+            height: options.height,
         })
     }
 
     fn render(&mut self) -> eyre::Result<()> {
+        self.wait_for_frame_latency()?;
+        let cursor_position = self.sample_cursor_position()?;
+        let vertex_count = self.update_scene_vertices(cursor_position)?;
+
         let frame_index = unsafe { self.swap_chain.GetCurrentBackBufferIndex() as usize };
         let current_target = &self.render_targets[frame_index];
 
@@ -257,7 +298,7 @@ impl Renderer {
                 .IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             self.command_list
                 .IASetVertexBuffers(0, Some(&[self.vertex_buffer_view]));
-            self.command_list.DrawInstanced(3, 1, 0, 0);
+            self.command_list.DrawInstanced(vertex_count as u32, 1, 0, 0);
 
             self.command_list.ResourceBarrier(&[transition_barrier(
                 current_target,
@@ -274,6 +315,53 @@ impl Renderer {
         }
 
         self.wait_for_gpu()
+    }
+
+    fn wait_for_frame_latency(&self) -> eyre::Result<()> {
+        if self.frame_latency_waitable_object.0.is_null() {
+            return Err(eyre::eyre!("Swap chain did not provide a frame latency waitable object"));
+        }
+
+        unsafe {
+            WaitForSingleObjectEx(*self.frame_latency_waitable_object, INFINITE, false);
+        }
+
+        Ok(())
+    }
+
+    fn sample_cursor_position(&self) -> eyre::Result<Option<(f32, f32)>> {
+        let mut point = POINT::default();
+        unsafe { GetCursorPos(&mut point) }.wrap_err("Failed to query cursor position")?;
+
+        let mut window_rect = RECT::default();
+        unsafe { GetWindowRect(self.hwnd, &mut window_rect) }
+            .wrap_err("Failed to query the window rectangle")?;
+
+        let x = (point.x - window_rect.left) as f32;
+        let y = (point.y - window_rect.top) as f32;
+        if x < 0.0 || y < 0.0 || x >= self.width as f32 || y >= self.height as f32 {
+            return Ok(None);
+        }
+
+        Ok(Some((x, y)))
+    }
+
+    fn update_scene_vertices(&self, cursor_position: Option<(f32, f32)>) -> eyre::Result<usize> {
+        let mut vertices = Vec::with_capacity(MAX_VERTEX_COUNT);
+        append_demo_triangle(&mut vertices);
+
+        if let Some((cursor_x, cursor_y)) = cursor_position {
+            append_cursor_target(&mut vertices, self.width as f32, self.height as f32, cursor_x, cursor_y);
+        }
+
+        unsafe {
+            let mut mapped = std::ptr::null_mut();
+            self.vertex_buffer.Map(0, None, Some(&mut mapped))?;
+            std::ptr::copy_nonoverlapping(vertices.as_ptr(), mapped as *mut Vertex, vertices.len());
+            self.vertex_buffer.Unmap(0, None);
+        }
+
+        Ok(vertices.len())
     }
 
     fn wait_for_gpu(&mut self) -> eyre::Result<()> {
@@ -375,7 +463,7 @@ fn create_swap_chain(
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: FRAME_COUNT as u32,
         Scaling: DXGI_SCALING_STRETCH,
-        SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+        SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
         AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED,
         Flags: DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT.0 as u32,
     };
@@ -614,28 +702,7 @@ fn shader_path() -> PathBuf {
 fn create_vertex_buffer(
     device: &ID3D12Device,
 ) -> eyre::Result<(ID3D12Resource, D3D12_VERTEX_BUFFER_VIEW)> {
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct Vertex {
-        position: [f32; 3],
-        color: [f32; 4],
-    }
-
-    let vertices = [
-        Vertex {
-            position: [0.0, 0.6, 0.0],
-            color: [1.0, 0.2, 0.2, 1.0],
-        },
-        Vertex {
-            position: [0.55, -0.4, 0.0],
-            color: [0.2, 1.0, 0.4, 1.0],
-        },
-        Vertex {
-            position: [-0.55, -0.4, 0.0],
-            color: [0.2, 0.5, 1.0, 1.0],
-        },
-    ];
-    let buffer_size = std::mem::size_of_val(&vertices) as u64;
+    let buffer_size = (std::mem::size_of::<Vertex>() * MAX_VERTEX_COUNT) as u64;
 
     let mut vertex_buffer = None;
     unsafe {
@@ -663,17 +730,6 @@ fn create_vertex_buffer(
     let vertex_buffer: ID3D12Resource =
         vertex_buffer.expect("vertex buffer should be initialized");
 
-    unsafe {
-        let mut mapped = std::ptr::null_mut();
-        vertex_buffer.Map(0, None, Some(&mut mapped))?;
-        std::ptr::copy_nonoverlapping(
-            vertices.as_ptr(),
-            mapped as *mut Vertex,
-            vertices.len(),
-        );
-        vertex_buffer.Unmap(0, None);
-    }
-
     Ok((
         vertex_buffer.clone(),
         D3D12_VERTEX_BUFFER_VIEW {
@@ -682,6 +738,203 @@ fn create_vertex_buffer(
             StrideInBytes: std::mem::size_of::<Vertex>() as u32,
         },
     ))
+}
+
+fn append_demo_triangle(vertices: &mut Vec<Vertex>) {
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [0.0, 0.6, 0.0],
+            color: [1.0, 0.2, 0.2, 0.85],
+        },
+        Vertex {
+            position: [0.55, -0.4, 0.0],
+            color: [0.2, 1.0, 0.4, 0.85],
+        },
+        Vertex {
+            position: [-0.55, -0.4, 0.0],
+            color: [0.2, 0.5, 1.0, 0.85],
+        },
+    ]);
+}
+
+fn append_cursor_target(
+    vertices: &mut Vec<Vertex>,
+    width: f32,
+    height: f32,
+    cursor_x: f32,
+    cursor_y: f32,
+) {
+    let ring_color = [1.0, 1.0, 1.0, 0.95];
+    let arm_color = [1.0, 0.15, 0.15, 0.95];
+
+    append_ring(
+        vertices,
+        width,
+        height,
+        cursor_x,
+        cursor_y,
+        CURSOR_RING_INNER_RADIUS,
+        CURSOR_RING_OUTER_RADIUS,
+        ring_color,
+    );
+
+    append_rect(
+        vertices,
+        width,
+        height,
+        cursor_x - CURSOR_ARM_THICKNESS * 0.5,
+        cursor_y - CURSOR_RING_OUTER_RADIUS - CURSOR_ARM_LENGTH,
+        CURSOR_ARM_THICKNESS,
+        CURSOR_ARM_LENGTH - CURSOR_ARM_GAP,
+        arm_color,
+    );
+    append_rect(
+        vertices,
+        width,
+        height,
+        cursor_x - CURSOR_ARM_THICKNESS * 0.5,
+        cursor_y + CURSOR_RING_OUTER_RADIUS + CURSOR_ARM_GAP,
+        CURSOR_ARM_THICKNESS,
+        CURSOR_ARM_LENGTH - CURSOR_ARM_GAP,
+        arm_color,
+    );
+    append_rect(
+        vertices,
+        width,
+        height,
+        cursor_x - CURSOR_RING_OUTER_RADIUS - CURSOR_ARM_LENGTH,
+        cursor_y - CURSOR_ARM_THICKNESS * 0.5,
+        CURSOR_ARM_LENGTH - CURSOR_ARM_GAP,
+        CURSOR_ARM_THICKNESS,
+        arm_color,
+    );
+    append_rect(
+        vertices,
+        width,
+        height,
+        cursor_x + CURSOR_RING_OUTER_RADIUS + CURSOR_ARM_GAP,
+        cursor_y - CURSOR_ARM_THICKNESS * 0.5,
+        CURSOR_ARM_LENGTH - CURSOR_ARM_GAP,
+        CURSOR_ARM_THICKNESS,
+        arm_color,
+    );
+}
+
+fn append_ring(
+    vertices: &mut Vec<Vertex>,
+    width: f32,
+    height: f32,
+    center_x: f32,
+    center_y: f32,
+    inner_radius: f32,
+    outer_radius: f32,
+    color: [f32; 4],
+) {
+    for segment in 0..CURSOR_RING_SEGMENTS {
+        let angle_start = std::f32::consts::TAU * segment as f32 / CURSOR_RING_SEGMENTS as f32;
+        let angle_end = std::f32::consts::TAU * (segment + 1) as f32 / CURSOR_RING_SEGMENTS as f32;
+
+        let inner_start = (
+            center_x + inner_radius * angle_start.cos(),
+            center_y + inner_radius * angle_start.sin(),
+        );
+        let inner_end = (
+            center_x + inner_radius * angle_end.cos(),
+            center_y + inner_radius * angle_end.sin(),
+        );
+        let outer_start = (
+            center_x + outer_radius * angle_start.cos(),
+            center_y + outer_radius * angle_start.sin(),
+        );
+        let outer_end = (
+            center_x + outer_radius * angle_end.cos(),
+            center_y + outer_radius * angle_end.sin(),
+        );
+
+        push_quad(
+            vertices,
+            width,
+            height,
+            outer_start,
+            outer_end,
+            inner_end,
+            inner_start,
+            color,
+        );
+    }
+}
+
+fn append_rect(
+    vertices: &mut Vec<Vertex>,
+    width: f32,
+    height: f32,
+    left: f32,
+    top: f32,
+    rect_width: f32,
+    rect_height: f32,
+    color: [f32; 4],
+) {
+    push_quad(
+        vertices,
+        width,
+        height,
+        (left, top),
+        (left + rect_width, top),
+        (left + rect_width, top + rect_height),
+        (left, top + rect_height),
+        color,
+    );
+}
+
+fn push_quad(
+    vertices: &mut Vec<Vertex>,
+    width: f32,
+    height: f32,
+    top_left: (f32, f32),
+    top_right: (f32, f32),
+    bottom_right: (f32, f32),
+    bottom_left: (f32, f32),
+    color: [f32; 4],
+) {
+    let top_left = to_ndc(width, height, top_left.0, top_left.1);
+    let top_right = to_ndc(width, height, top_right.0, top_right.1);
+    let bottom_right = to_ndc(width, height, bottom_right.0, bottom_right.1);
+    let bottom_left = to_ndc(width, height, bottom_left.0, bottom_left.1);
+
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: top_left,
+            color,
+        },
+        Vertex {
+            position: top_right,
+            color,
+        },
+        Vertex {
+            position: bottom_right,
+            color,
+        },
+        Vertex {
+            position: top_left,
+            color,
+        },
+        Vertex {
+            position: bottom_right,
+            color,
+        },
+        Vertex {
+            position: bottom_left,
+            color,
+        },
+    ]);
+}
+
+fn to_ndc(width: f32, height: f32, x: f32, y: f32) -> [f32; 3] {
+    [
+        (x / width) * 2.0 - 1.0,
+        1.0 - (y / height) * 2.0,
+        0.0,
+    ]
 }
 
 fn transition_barrier(
