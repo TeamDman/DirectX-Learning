@@ -39,3 +39,5 @@ As far as I know, with literally any other combination of settings other than wh
 
 As far as I can tell, it doesn't seem possible to set up a DX swap chain with this configuration in bevy / wgpu at the moment, and even with the bevy_framepace plugin, there is still significant latency compared to the proper DX flip model I had before.
 
+
+
