@@ -22,7 +22,7 @@ windows = { version = "0.61.1", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 eyre = "0.6.12"
-chrono = "0.4.40"
+chrono = { version = "0.4.40", default-features = false, features = ["clock", "std", "oldtime"] }
 tracing = "0.1.41"
 bevy_math = "0.16.0"
 widestring = "1.2.0"
