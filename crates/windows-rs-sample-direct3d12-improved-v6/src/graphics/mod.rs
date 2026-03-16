@@ -7,7 +7,6 @@ use windows::Win32::Foundation::{E_FAIL, FALSE, HANDLE, HWND, LPARAM, LRESULT, P
 use windows::Win32::Graphics::Direct3D::Fxc::{D3DCOMPILE_DEBUG, D3DCOMPILE_SKIP_OPTIMIZATION, D3DCompileFromFile};
 use windows::Win32::Graphics::Direct3D::{D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ID3DBlob};
 use windows::Win32::Graphics::Direct3D12::*;
-use windows::Win32::Graphics::DirectComposition::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::System::Threading::{CreateEventW, INFINITE, WaitForSingleObjectEx};
@@ -96,15 +95,15 @@ fn create_window(options: &TransparentTriangleOptions) -> eyre::Result<HWND> {
 
     let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
     let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    let width = options.width as i32;
-    let height = options.height as i32;
-    let x = (screen_width - width) / 2;
-    let y = (screen_height - height) / 2;
+    let width = screen_width;
+    let height = screen_height;
+    let x = 0;
+    let y = 0;
     let title = options.title.as_str().easy_pcwstr()?;
 
     let hwnd = unsafe {
         CreateWindowExW(
-            WS_EX_APPWINDOW | WS_EX_NOREDIRECTIONBITMAP,
+            WS_EX_APPWINDOW | WS_EX_TOPMOST,
             WINDOW_CLASS_NAME,
             title.as_ref(),
             WS_POPUP | WS_VISIBLE,
@@ -159,9 +158,6 @@ struct Renderer {
     hwnd: HWND,
     _dxgi_factory: IDXGIFactory4,
     _device: ID3D12Device,
-    _dcomp_device: IDCompositionDevice,
-    _dcomp_target: IDCompositionTarget,
-    _dcomp_visual: IDCompositionVisual,
     command_queue: ID3D12CommandQueue,
     swap_chain: IDXGISwapChain3,
     render_targets: [ID3D12Resource; FRAME_COUNT],
@@ -188,15 +184,13 @@ impl Renderer {
     fn new(hwnd: HWND, options: &TransparentTriangleOptions) -> eyre::Result<Self> {
         let (dxgi_factory, device) = create_device(options.use_warp_device)?;
         let command_queue = create_command_queue(&device)?;
-        let swap_chain = create_swap_chain(&dxgi_factory, &command_queue, options.width, options.height)?;
+        let (width, height) = client_size(hwnd)?;
+        let swap_chain = create_swap_chain(&dxgi_factory, &command_queue, hwnd, width, height)?;
         unsafe { dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)? };
         unsafe { swap_chain.SetMaximumFrameLatency(1)? };
         let frame_latency_waitable_object = unsafe {
             Owned::new(swap_chain.GetFrameLatencyWaitableObject())
         };
-
-        let (dcomp_device, dcomp_target, dcomp_visual) =
-            attach_swap_chain_to_window(hwnd, &device, &swap_chain)?;
 
         let (rtv_heap, rtv_descriptor_size, render_targets) =
             create_render_targets(&device, &swap_chain)?;
@@ -220,25 +214,22 @@ impl Renderer {
         let viewport = D3D12_VIEWPORT {
             TopLeftX: 0.0,
             TopLeftY: 0.0,
-            Width: options.width as f32,
-            Height: options.height as f32,
+            Width: width as f32,
+            Height: height as f32,
             MinDepth: D3D12_MIN_DEPTH,
             MaxDepth: D3D12_MAX_DEPTH,
         };
         let scissor_rect = RECT {
             left: 0,
             top: 0,
-            right: options.width as i32,
-            bottom: options.height as i32,
+            right: width as i32,
+            bottom: height as i32,
         };
 
         Ok(Self {
             hwnd,
             _dxgi_factory: dxgi_factory,
             _device: device,
-            _dcomp_device: dcomp_device,
-            _dcomp_target: dcomp_target,
-            _dcomp_visual: dcomp_visual,
             command_queue,
             swap_chain,
             render_targets,
@@ -257,8 +248,8 @@ impl Renderer {
             vertex_buffer_view,
             viewport,
             scissor_rect,
-            width: options.width,
-            height: options.height,
+            width,
+            height,
         })
     }
 
@@ -491,10 +482,10 @@ fn create_command_allocators(
 fn create_swap_chain(
     factory: &IDXGIFactory4,
     command_queue: &ID3D12CommandQueue,
+    hwnd: HWND,
     width: u32,
     height: u32,
 ) -> eyre::Result<IDXGISwapChain3> {
-    let factory2: IDXGIFactory2 = factory.cast()?;
     let description = DXGI_SWAP_CHAIN_DESC1 {
         Width: width,
         Height: height,
@@ -505,33 +496,22 @@ fn create_swap_chain(
         BufferCount: FRAME_COUNT as u32,
         Scaling: DXGI_SCALING_STRETCH,
         SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
-        AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED,
+        AlphaMode: DXGI_ALPHA_MODE_IGNORE,
         Flags: DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT.0 as u32,
     };
 
     let swap_chain: IDXGISwapChain1 = unsafe {
-        factory2.CreateSwapChainForComposition(command_queue, &description, None)?
+        factory.CreateSwapChainForHwnd(command_queue, hwnd, &description, None, None)?
     };
     Ok(swap_chain.cast()?)
 }
 
-fn attach_swap_chain_to_window(
-    hwnd: HWND,
-    _device: &ID3D12Device,
-    swap_chain: &IDXGISwapChain3,
-) -> eyre::Result<(IDCompositionDevice, IDCompositionTarget, IDCompositionVisual)> {
-    let dcomp_device: IDCompositionDevice =
-        unsafe { DCompositionCreateDevice::<_, IDCompositionDevice>(None::<&IDXGIDevice>) }?;
-    let dcomp_target = unsafe { dcomp_device.CreateTargetForHwnd(hwnd, true) }?;
-    let dcomp_visual = unsafe { dcomp_device.CreateVisual() }?;
-
-    unsafe {
-        dcomp_visual.SetContent(swap_chain)?;
-        dcomp_target.SetRoot(&dcomp_visual)?;
-        dcomp_device.Commit()?;
-    }
-
-    Ok((dcomp_device, dcomp_target, dcomp_visual))
+fn client_size(hwnd: HWND) -> eyre::Result<(u32, u32)> {
+    let mut rect = RECT::default();
+    unsafe { GetClientRect(hwnd, &mut rect) }.wrap_err("Failed to query client size")?;
+    let width = (rect.right - rect.left).max(0) as u32;
+    let height = (rect.bottom - rect.top).max(0) as u32;
+    Ok((width, height))
 }
 
 fn create_render_targets(
