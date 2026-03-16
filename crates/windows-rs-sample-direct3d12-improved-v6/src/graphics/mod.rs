@@ -167,10 +167,11 @@ struct Renderer {
     render_targets: [ID3D12Resource; FRAME_COUNT],
     rtv_heap: ID3D12DescriptorHeap,
     rtv_descriptor_size: u32,
-    command_allocator: ID3D12CommandAllocator,
+    command_allocators: [ID3D12CommandAllocator; FRAME_COUNT],
     command_list: ID3D12GraphicsCommandList,
     fence: ID3D12Fence,
-    fence_value: u64,
+    next_fence_value: u64,
+    frame_fence_values: [u64; FRAME_COUNT],
     fence_event: Owned<HANDLE>,
     frame_latency_waitable_object: Owned<HANDLE>,
     root_signature: ID3D12RootSignature,
@@ -199,15 +200,14 @@ impl Renderer {
 
         let (rtv_heap, rtv_descriptor_size, render_targets) =
             create_render_targets(&device, &swap_chain)?;
-        let command_allocator: ID3D12CommandAllocator =
-            unsafe { device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT) }?;
+        let command_allocators = create_command_allocators(&device)?;
         let root_signature = create_root_signature(&device)?;
         let pipeline_state = create_pipeline_state(&device, &root_signature)?;
         let command_list: ID3D12GraphicsCommandList = unsafe {
             device.CreateCommandList(
                 0,
                 D3D12_COMMAND_LIST_TYPE_DIRECT,
-                &command_allocator,
+                &command_allocators[0],
                 &pipeline_state,
             )
         }?;
@@ -244,10 +244,11 @@ impl Renderer {
             render_targets,
             rtv_heap,
             rtv_descriptor_size,
-            command_allocator,
+            command_allocators,
             command_list,
             fence,
-            fence_value: 1,
+            next_fence_value: 1,
+            frame_fence_values: [0; FRAME_COUNT],
             fence_event,
             frame_latency_waitable_object,
             root_signature,
@@ -263,16 +264,19 @@ impl Renderer {
 
     fn render(&mut self) -> eyre::Result<()> {
         self.wait_for_frame_latency()?;
+        let frame_index = unsafe { self.swap_chain.GetCurrentBackBufferIndex() as usize };
+        self.wait_for_frame(frame_index)?;
+
         let cursor_position = self.sample_cursor_position()?;
         let vertex_count = self.update_scene_vertices(cursor_position)?;
 
-        let frame_index = unsafe { self.swap_chain.GetCurrentBackBufferIndex() as usize };
         let current_target = &self.render_targets[frame_index];
+        let command_allocator = &self.command_allocators[frame_index];
 
         unsafe {
-            self.command_allocator.Reset()?;
+            command_allocator.Reset()?;
             self.command_list
-                .Reset(&self.command_allocator, &self.pipeline_state)?;
+                .Reset(command_allocator, &self.pipeline_state)?;
 
             self.command_list.SetGraphicsRootSignature(&self.root_signature);
             self.command_list.RSSetViewports(&[self.viewport]);
@@ -311,10 +315,10 @@ impl Renderer {
         let command_lists = [Some(self.command_list.cast::<ID3D12CommandList>()?)];
         unsafe {
             self.command_queue.ExecuteCommandLists(&command_lists);
-            self.swap_chain.Present(1, DXGI_PRESENT(0)).ok()?;
+            self.swap_chain.Present(0, DXGI_PRESENT(0)).ok()?;
         }
 
-        self.wait_for_gpu()
+        self.signal_frame(frame_index)
     }
 
     fn wait_for_frame_latency(&self) -> eyre::Result<()> {
@@ -364,16 +368,42 @@ impl Renderer {
         Ok(vertices.len())
     }
 
-    fn wait_for_gpu(&mut self) -> eyre::Result<()> {
+    fn wait_for_frame(&self, frame_index: usize) -> eyre::Result<()> {
+        let fence_value = self.frame_fence_values[frame_index];
+        if fence_value == 0 {
+            return Ok(());
+        }
+
         unsafe {
-            self.command_queue.Signal(&self.fence, self.fence_value)?;
-            if self.fence.GetCompletedValue() < self.fence_value {
-                self.fence
-                    .SetEventOnCompletion(self.fence_value, *self.fence_event)?;
+            if self.fence.GetCompletedValue() < fence_value {
+                self.fence.SetEventOnCompletion(fence_value, *self.fence_event)?;
                 WaitForSingleObjectEx(*self.fence_event, INFINITE, false);
             }
         }
-        self.fence_value += 1;
+
+        Ok(())
+    }
+
+    fn signal_frame(&mut self, frame_index: usize) -> eyre::Result<()> {
+        let fence_value = self.next_fence_value;
+        unsafe {
+            self.command_queue.Signal(&self.fence, fence_value)?;
+        }
+        self.frame_fence_values[frame_index] = fence_value;
+        self.next_fence_value += 1;
+        Ok(())
+    }
+
+    fn wait_for_gpu(&mut self) -> eyre::Result<()> {
+        let fence_value = self.next_fence_value;
+        unsafe {
+            self.command_queue.Signal(&self.fence, fence_value)?;
+            if self.fence.GetCompletedValue() < fence_value {
+                self.fence.SetEventOnCompletion(fence_value, *self.fence_event)?;
+                WaitForSingleObjectEx(*self.fence_event, INFINITE, false);
+            }
+        }
+        self.next_fence_value += 1;
         Ok(())
     }
 }
@@ -445,6 +475,17 @@ fn create_command_queue(device: &ID3D12Device) -> eyre::Result<ID3D12CommandQueu
             ..Default::default()
         })?
     })
+}
+
+fn create_command_allocators(
+    device: &ID3D12Device,
+) -> eyre::Result<[ID3D12CommandAllocator; FRAME_COUNT]> {
+    let mut allocators = std::array::from_fn(|_| None::<ID3D12CommandAllocator>);
+    for slot in &mut allocators {
+        *slot = Some(unsafe { device.CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT) }?);
+    }
+
+    Ok(allocators.map(Option::unwrap))
 }
 
 fn create_swap_chain(
