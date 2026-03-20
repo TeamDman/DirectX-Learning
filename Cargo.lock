@@ -1870,6 +1870,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sample_direct3d12_improved_v7"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "color-eyre",
+ "embed-resource",
+ "eyre",
+ "facet",
+ "figue",
+ "teamy-windows",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
