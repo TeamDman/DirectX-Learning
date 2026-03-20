@@ -1,41 +1,40 @@
+What changed
 
-so we would have to create a composite cursor where our object is welded to the cursor by rendering our object to an object we then set as the cursor?
+- Added runtime tearing detection and enabled it when supported.
+  - `Renderer` now tracks `allow_tearing` at `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:162`.
+  - Support is probed via `IDXGIFactory5::CheckFeatureSupport` in `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:547`.
+  - The swap chain now includes `DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING` when available in `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:514`.
+  - `Present` now uses `DXGI_PRESENT_ALLOW_TEARING` when supported in `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:330`.
 
-Yes, that is the basic idea if you want zero visible separation.
+- Removed per-frame vertex allocation jitter.
+  - Added a reusable scratch vector in `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:180`.
+  - `update_scene_vertices` now clears and reuses that buffer instead of allocating a new `Vec` every frame in `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:365`.
 
-You would:
+- Kept the upload vertex buffer persistently mapped.
+  - The buffer is mapped once during renderer creation in `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:220`.
+  - A cached CPU pointer is stored at `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:178`.
+  - Each frame now writes directly into the mapped upload memory instead of `Map`/`Unmap` every frame.
+  - The buffer is unmapped on shutdown in `crates/windows-rs-sample-direct3d12-improved-v7/src/graphics/mod.rs:435`.
 
-Render or rasterize a combined image
-Put both the cursor graphic and the dragged object graphic into that image
-Set the hotspot to the exact pointer location inside that image
-Use that image as the OS cursor
-Then the whole thing moves on the OS cursor path, so the object is visually welded to the cursor.
+What I did not change
 
-Important constraints
+- I kept your late input sampling order intact because it was already correct: wait on frame latency, wait for the frame fence, then sample cursor and build vertices.
+- I did not hide the OS cursor. That would remove the visible comparison, but it would not truly make the software cursor use the OS cursor path.
 
-This works best when the dragged visual is small enough to behave like a cursor.
-Cursors are not a general-purpose scene graph.
-Rebuilding a cursor every frame is possible in principle, but usually awkward and not ideal for rich or large visuals.
-Very large drag previews or complex animated objects are usually a poor fit for cursor APIs.
-So the practical answer is:
+Validation
 
-For a small dragged badge, reticle, icon, or window-tab preview: yes, a composite cursor is the right way to get perfect lock.
-For a real app window, panel, or large object: usually no, that is not a good cursor candidate. You would normally accept software-render lag or hide the OS cursor and render everything yourself.
-A good rule
+- `cargo check` succeeded.
+- The workspace still has unrelated warnings in older sample crates, but mod.rs in v7 is clean and compiles.
 
-If the thing can reasonably be thought of as a pointer shape, make it part of the cursor.
-If the thing is really a scene object, don’t force it into the cursor system unless you absolutely need perfect visible lock.
-On Windows this usually means creating an HCURSOR from ARGB bitmap data, typically via CreateIconIndirect, then applying it with SetCursor and possibly the class cursor as well.
+Reality check
 
-One nuance
+- These changes should shave off avoidable app-side latency and jitter.
+- The OS cursor can still appear slightly ahead because Windows renders it on a special lower-latency path that your swap chain does not share.
 
-If the object has an offset from the pointer, that is still fine.
-The hotspot marks the true click point.
-The rest of the cursor image can include your object drawn at any relative offset.
-So yes: “composite cursor” is the correct concept.
+Natural next steps
 
-If you want, I can implement that next in v6:
+1. Run `cargo run window show` in windows-rs-sample-direct3d12-improved-v7 and compare cursor alignment with tearing enabled on your monitor.
+2. If you want the visible mismatch gone entirely, I can patch this sample to hide the OS cursor while the app is active.
+3. If you want the dragged object to feel “welded” to the pointer, I can help move that visual onto the real OS cursor path instead of the swap chain.
 
-replace the current app-drawn target with a real custom OS cursor
-show how to build a composite cursor image with an arbitrary offset
-optionally keep the D3D rendering path for other objects while the cursor itself becomes hardware-driven
+Made changes.

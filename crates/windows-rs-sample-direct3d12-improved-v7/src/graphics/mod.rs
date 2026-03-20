@@ -1,5 +1,6 @@
 use eyre::Context;
 use std::path::PathBuf;
+use std::ptr::NonNull;
 use teamy_windows::module::get_current_module;
 use teamy_windows::string::EasyPCWSTR;
 use tracing::info;
@@ -158,6 +159,7 @@ struct Renderer {
     hwnd: HWND,
     _dxgi_factory: IDXGIFactory4,
     _device: ID3D12Device,
+    allow_tearing: bool,
     command_queue: ID3D12CommandQueue,
     swap_chain: IDXGISwapChain3,
     render_targets: [ID3D12Resource; FRAME_COUNT],
@@ -173,7 +175,9 @@ struct Renderer {
     root_signature: ID3D12RootSignature,
     pipeline_state: ID3D12PipelineState,
     vertex_buffer: ID3D12Resource,
+    vertex_buffer_ptr: NonNull<Vertex>,
     vertex_buffer_view: D3D12_VERTEX_BUFFER_VIEW,
+    scratch_vertices: Vec<Vertex>,
     viewport: D3D12_VIEWPORT,
     scissor_rect: RECT,
     width: u32,
@@ -183,14 +187,17 @@ struct Renderer {
 impl Renderer {
     fn new(hwnd: HWND, options: &TransparentTriangleOptions) -> eyre::Result<Self> {
         let (dxgi_factory, device) = create_device(options.use_warp_device)?;
+        let allow_tearing = supports_allow_tearing(&dxgi_factory);
         let command_queue = create_command_queue(&device)?;
         let (width, height) = client_size(hwnd)?;
-        let swap_chain = create_swap_chain(&dxgi_factory, &command_queue, hwnd, width, height)?;
+        let swap_chain =
+            create_swap_chain(&dxgi_factory, &command_queue, hwnd, width, height, allow_tearing)?;
         unsafe { dxgi_factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER)? };
         unsafe { swap_chain.SetMaximumFrameLatency(1)? };
         let frame_latency_waitable_object = unsafe {
             Owned::new(swap_chain.GetFrameLatencyWaitableObject())
         };
+        info!(allow_tearing, "Swap chain tearing support");
 
         let (rtv_heap, rtv_descriptor_size, render_targets) =
             create_render_targets(&device, &swap_chain)?;
@@ -208,6 +215,12 @@ impl Renderer {
         unsafe { command_list.Close()? };
 
         let (vertex_buffer, vertex_buffer_view) = create_vertex_buffer(&device)?;
+        let vertex_buffer_ptr = {
+            let mut mapped = std::ptr::null_mut();
+            unsafe { vertex_buffer.Map(0, None, Some(&mut mapped))? };
+            NonNull::new(mapped as *mut Vertex)
+                .ok_or_else(|| eyre::eyre!("Vertex buffer map returned a null pointer"))?
+        };
         let fence: ID3D12Fence = unsafe { device.CreateFence(0, D3D12_FENCE_FLAG_NONE) }?;
         let fence_event = unsafe { Owned::new(CreateEventW(None, false, false, None)?) };
 
@@ -230,6 +243,7 @@ impl Renderer {
             hwnd,
             _dxgi_factory: dxgi_factory,
             _device: device,
+            allow_tearing,
             command_queue,
             swap_chain,
             render_targets,
@@ -245,7 +259,9 @@ impl Renderer {
             root_signature,
             pipeline_state,
             vertex_buffer,
+            vertex_buffer_ptr,
             vertex_buffer_view,
+            scratch_vertices: Vec::with_capacity(MAX_VERTEX_COUNT),
             viewport,
             scissor_rect,
             width,
@@ -259,7 +275,7 @@ impl Renderer {
         self.wait_for_frame(frame_index)?;
 
         let cursor_position = self.sample_cursor_position()?;
-        let vertex_count = self.update_scene_vertices(cursor_position)?;
+        let vertex_count = self.update_scene_vertices(cursor_position);
 
         let current_target = &self.render_targets[frame_index];
         let command_allocator = &self.command_allocators[frame_index];
@@ -306,7 +322,12 @@ impl Renderer {
         let command_lists = [Some(self.command_list.cast::<ID3D12CommandList>()?)];
         unsafe {
             self.command_queue.ExecuteCommandLists(&command_lists);
-            self.swap_chain.Present(0, DXGI_PRESENT(0)).ok()?;
+            let present_flags = if self.allow_tearing {
+                DXGI_PRESENT_ALLOW_TEARING
+            } else {
+                DXGI_PRESENT(0)
+            };
+            self.swap_chain.Present(0, present_flags).ok()?;
         }
 
         self.signal_frame(frame_index)
@@ -341,22 +362,30 @@ impl Renderer {
         Ok(Some((x, y)))
     }
 
-    fn update_scene_vertices(&self, cursor_position: Option<(f32, f32)>) -> eyre::Result<usize> {
-        let mut vertices = Vec::with_capacity(MAX_VERTEX_COUNT);
-        append_demo_triangle(&mut vertices);
+    fn update_scene_vertices(&mut self, cursor_position: Option<(f32, f32)>) -> usize {
+        self.scratch_vertices.clear();
+        append_demo_triangle(&mut self.scratch_vertices);
 
         if let Some((cursor_x, cursor_y)) = cursor_position {
-            append_cursor_target(&mut vertices, self.width as f32, self.height as f32, cursor_x, cursor_y);
+            append_cursor_target(
+                &mut self.scratch_vertices,
+                self.width as f32,
+                self.height as f32,
+                cursor_x,
+                cursor_y,
+            );
         }
 
+        // Keep the upload buffer mapped to avoid extra per-frame CPU jitter.
         unsafe {
-            let mut mapped = std::ptr::null_mut();
-            self.vertex_buffer.Map(0, None, Some(&mut mapped))?;
-            std::ptr::copy_nonoverlapping(vertices.as_ptr(), mapped as *mut Vertex, vertices.len());
-            self.vertex_buffer.Unmap(0, None);
+            std::ptr::copy_nonoverlapping(
+                self.scratch_vertices.as_ptr(),
+                self.vertex_buffer_ptr.as_ptr(),
+                self.scratch_vertices.len(),
+            );
         }
 
-        Ok(vertices.len())
+        self.scratch_vertices.len()
     }
 
     fn wait_for_frame(&self, frame_index: usize) -> eyre::Result<()> {
@@ -402,6 +431,9 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         let _ = self.wait_for_gpu();
+        unsafe {
+            self.vertex_buffer.Unmap(0, None);
+        }
     }
 }
 
@@ -485,7 +517,13 @@ fn create_swap_chain(
     hwnd: HWND,
     width: u32,
     height: u32,
+    allow_tearing: bool,
 ) -> eyre::Result<IDXGISwapChain3> {
+    let mut flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT.0 as u32;
+    if allow_tearing {
+        flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING.0 as u32;
+    }
+
     let description = DXGI_SWAP_CHAIN_DESC1 {
         Width: width,
         Height: height,
@@ -497,13 +535,30 @@ fn create_swap_chain(
         Scaling: DXGI_SCALING_STRETCH,
         SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
         AlphaMode: DXGI_ALPHA_MODE_IGNORE,
-        Flags: DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT.0 as u32,
+        Flags: flags,
     };
 
     let swap_chain: IDXGISwapChain1 = unsafe {
         factory.CreateSwapChainForHwnd(command_queue, hwnd, &description, None, None)?
     };
     Ok(swap_chain.cast()?)
+}
+
+fn supports_allow_tearing(factory: &IDXGIFactory4) -> bool {
+    let Ok(factory) = factory.cast::<IDXGIFactory5>() else {
+        return false;
+    };
+
+    let mut allow_tearing = FALSE;
+    unsafe {
+        factory.CheckFeatureSupport(
+            DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &mut allow_tearing as *mut _ as *mut _,
+            std::mem::size_of_val(&allow_tearing) as u32,
+        )
+    }
+    .is_ok()
+        && allow_tearing.as_bool()
 }
 
 fn client_size(hwnd: HWND) -> eyre::Result<(u32, u32)> {
